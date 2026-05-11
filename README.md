@@ -1,6 +1,6 @@
 # IndexForge — AI-Powered On-Chain Thematic Index Platform
 
-> **SoSoValue Buildathon 2026** · Wave 1 Submission
+> **SoSoValue Buildathon 2026** 
 
 **Anyone can be an index fund manager.** Describe your investment thesis in plain English — IndexForge uses institutional-grade SoSoValue data + Claude AI to build, backtest, and publish a weighted on-chain crypto index, then execute rebalancing through SoDEX.
 
