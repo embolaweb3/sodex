@@ -7,7 +7,7 @@
 ## Live Demo
 
 ```
-npm run dev → http://localhost:3000
+https://indexforge-kappa.vercel.app/
 ```
 
 ## What It Does
