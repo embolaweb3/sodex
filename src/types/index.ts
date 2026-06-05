@@ -112,3 +112,20 @@ export interface ExecutionPreview {
   slippage: number;
   notional: number;
 }
+
+export interface ExecutedOrder {
+  market: string;
+  symbol: string;
+  txHash: string;
+  blockExplorerUrl: string;
+  status: 'confirmed';
+  notional: number;
+  weight: number;
+  timestamp: string;
+}
+
+export interface ExecutionResult {
+  orders: ExecutedOrder[];
+  executedAt: string;
+  source: 'live' | 'mock';
+}

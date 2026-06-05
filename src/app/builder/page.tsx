@@ -7,7 +7,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
 import { formatCurrency, formatPercent, getCategoryColor, cn } from '@/lib/utils';
-import type { BuildIndexResponse } from '@/types';
+import type { BuildIndexResponse, ExecutionResult } from '@/types';
 
 const Scene = dynamic(() => import('@/components/three/Scene').then(m => ({ default: m.Scene })), { ssr: false });
 
@@ -254,8 +254,46 @@ export default function BuilderPage() {
   );
 }
 
+function truncateTxHash(hash: string) {
+  return `${hash.slice(0, 10)}...${hash.slice(-8)}`;
+}
+
 function IndexResult({ result, onRebuild }: { result: BuildIndexResponse; onRebuild: () => void }) {
   const { index, reasoning, warnings, backtest } = result;
+  const [execState, setExecState] = useState<'idle' | 'executing' | 'done'>('idle');
+  const [execResult, setExecResult] = useState<ExecutionResult | null>(null);
+  const [execError, setExecError] = useState('');
+  const [copied, setCopied] = useState<string | null>(null);
+
+  async function handleExecute() {
+    setExecState('executing');
+    setExecError('');
+    try {
+      const orders = index.constituents.map(token => ({
+        market: `${token.symbol}-USDC`,
+        symbol: token.symbol,
+        notional: (token.weight / 100) * 10000,
+        weight: token.weight,
+      }));
+      const res = await fetch('/api/sodex/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orders }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Execution failed');
+      setExecResult(await res.json());
+      setExecState('done');
+    } catch (err) {
+      setExecError(err instanceof Error ? err.message : 'Execution failed');
+      setExecState('idle');
+    }
+  }
+
+  function copyHash(hash: string) {
+    navigator.clipboard.writeText(hash).catch(() => {});
+    setCopied(hash);
+    setTimeout(() => setCopied(null), 2000);
+  }
 
   return (
     <motion.div
@@ -423,50 +461,161 @@ function IndexResult({ result, onRebuild }: { result: BuildIndexResponse; onRebu
         )}
       </div>
 
-      {/* Execution Preview */}
+      {/* Execution Panel */}
       <div className="glass rounded-2xl p-6 border border-cyan-500/10">
-        <div className="flex items-center gap-2 mb-4">
-          <span className="text-lg">⚡</span>
-          <h3 className="font-bold text-white">SoDEX Execution Preview</h3>
-          <span className="text-xs px-2 py-0.5 rounded-md bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">Testnet Ready</span>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">⚡</span>
+            <h3 className="font-bold text-white">SoDEX Execution</h3>
+            {execResult && (
+              <span className={cn(
+                'text-xs px-2 py-0.5 rounded-md border font-semibold',
+                execResult.source === 'live'
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                  : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+              )}>
+                {execResult.source === 'live' ? '● LIVE' : '○ DEMO'}
+              </span>
+            )}
+            {execState === 'idle' && !execResult && (
+              <span className="text-xs px-2 py-0.5 rounded-md bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">Testnet</span>
+            )}
+          </div>
+          {execResult && (
+            <span className="text-xs text-gray-500">
+              {new Date(execResult.executedAt).toLocaleTimeString()}
+            </span>
+          )}
         </div>
-        <p className="text-xs text-gray-500 mb-4">Estimated execution costs for $10,000 initial deployment via SoDEX orderbook</p>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-xs text-gray-500 uppercase tracking-wider border-b border-white/5">
-                <th className="text-left py-2">Token</th>
-                <th className="text-right py-2">Weight</th>
-                <th className="text-right py-2">Notional</th>
-                <th className="text-right py-2">Est. Qty</th>
-                <th className="text-right py-2">Slippage</th>
-              </tr>
-            </thead>
-            <tbody>
-              {index.constituents.map(token => {
-                const notional = (token.weight / 100) * 10000;
-                const qty = token.price > 0 ? notional / token.price : 0;
-                return (
-                  <tr key={token.symbol} className="border-b border-white/3 hover:bg-white/2">
-                    <td className="py-2.5 font-mono font-semibold text-white">{token.symbol}</td>
-                    <td className="py-2.5 text-right text-gray-400">{token.weight}%</td>
-                    <td className="py-2.5 text-right text-gray-300">{formatCurrency(notional)}</td>
-                    <td className="py-2.5 text-right text-gray-300">{qty.toFixed(4)}</td>
-                    <td className="py-2.5 text-right text-emerald-400">~0.05%</td>
+
+        {/* Pre-execution: order preview table */}
+        {execState !== 'done' && (
+          <>
+            <p className="text-xs text-gray-500 mb-4">$10,000 deployment across {index.constituents.length} tokens via SoDEX orderbook</p>
+            <div className="overflow-x-auto mb-4">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-gray-500 uppercase tracking-wider border-b border-white/5">
+                    <th className="text-left py-2">Token</th>
+                    <th className="text-right py-2">Weight</th>
+                    <th className="text-right py-2">Notional</th>
+                    <th className="text-right py-2">Est. Qty</th>
+                    <th className="text-right py-2">Slippage</th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        <div className="mt-4 flex gap-3">
-          <button className="flex-1 py-3 rounded-xl bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-sm font-bold text-white transition-all glow-cyan">
-            Execute on SoDEX Testnet
-          </button>
-          <button className="px-4 py-3 rounded-xl glass border border-white/10 hover:border-white/20 text-sm text-gray-400 hover:text-white transition-all">
-            EIP-712 Sign
-          </button>
-        </div>
+                </thead>
+                <tbody>
+                  {index.constituents.map(token => {
+                    const notional = (token.weight / 100) * 10000;
+                    const qty = token.price > 0 ? notional / token.price : 0;
+                    return (
+                      <tr key={token.symbol} className="border-b border-white/3 hover:bg-white/2">
+                        <td className="py-2.5 font-mono font-semibold text-white">{token.symbol}</td>
+                        <td className="py-2.5 text-right text-gray-400">{token.weight}%</td>
+                        <td className="py-2.5 text-right text-gray-300">{formatCurrency(notional)}</td>
+                        <td className="py-2.5 text-right text-gray-300">{qty.toFixed(4)}</td>
+                        <td className="py-2.5 text-right text-emerald-400">~0.05%</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {execError && (
+              <div className="mb-3 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs">
+                {execError}
+              </div>
+            )}
+
+            <button
+              onClick={handleExecute}
+              disabled={execState === 'executing'}
+              className={cn(
+                'w-full py-3 rounded-xl text-sm font-bold text-white transition-all',
+                execState === 'executing'
+                  ? 'bg-cyan-900/50 text-cyan-600 cursor-wait'
+                  : 'bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 glow-cyan hover:scale-[1.01] active:scale-[0.99]'
+              )}
+            >
+              {execState === 'executing' ? (
+                <span className="flex items-center justify-center gap-2">
+                  <span className="w-4 h-4 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin" />
+                  Submitting {index.constituents.length} orders to SoDEX...
+                </span>
+              ) : (
+                `Execute ${index.constituents.length} Orders on SoDEX Testnet →`
+              )}
+            </button>
+          </>
+        )}
+
+        {/* Post-execution: tx receipt table */}
+        {execState === 'done' && execResult && (
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+            <div className="flex items-center gap-2 mb-3 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+              <span className="text-emerald-400 text-base">✓</span>
+              <span className="text-emerald-300 text-sm font-semibold">
+                {execResult.orders.length} orders confirmed on SoDEX testnet
+              </span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-gray-500 uppercase tracking-wider border-b border-white/5">
+                    <th className="text-left py-2">Token</th>
+                    <th className="text-right py-2">Notional</th>
+                    <th className="text-left py-2 pl-4">Tx Hash</th>
+                    <th className="text-right py-2">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {execResult.orders.map(order => (
+                    <motion.tr
+                      key={order.symbol}
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      className="border-b border-white/3 hover:bg-white/2 group"
+                    >
+                      <td className="py-2.5 font-mono font-semibold text-white">{order.symbol}</td>
+                      <td className="py-2.5 text-right text-gray-300">{formatCurrency(order.notional)}</td>
+                      <td className="py-2.5 pl-4">
+                        <div className="flex items-center gap-2">
+                          <a
+                            href={order.blockExplorerUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="font-mono text-xs text-cyan-400 hover:text-cyan-300 underline decoration-dotted transition-colors"
+                            title={order.txHash}
+                          >
+                            {truncateTxHash(order.txHash)}
+                          </a>
+                          <button
+                            onClick={() => copyHash(order.txHash)}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-500 hover:text-gray-300 text-xs"
+                            title="Copy tx hash"
+                          >
+                            {copied === order.txHash ? '✓' : '⎘'}
+                          </button>
+                        </div>
+                      </td>
+                      <td className="py-2.5 text-right">
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 font-medium">
+                          Confirmed
+                        </span>
+                      </td>
+                    </motion.tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <button
+              onClick={() => { setExecState('idle'); setExecResult(null); }}
+              className="mt-4 w-full py-2.5 rounded-xl glass border border-white/10 hover:border-white/20 text-xs text-gray-400 hover:text-white transition-all"
+            >
+              Reset execution
+            </button>
+          </motion.div>
+        )}
       </div>
     </motion.div>
   );
