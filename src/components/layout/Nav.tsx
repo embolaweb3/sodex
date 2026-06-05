@@ -16,11 +16,19 @@ export function Nav() {
   const pathname = usePathname();
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [dataSource, setDataSource] = useState<'live' | 'mock' | null>(null);
 
   useEffect(() => {
     const handler = () => setScrolled(window.scrollY > 20);
     window.addEventListener('scroll', handler, { passive: true });
     return () => window.removeEventListener('scroll', handler);
+  }, []);
+
+  useEffect(() => {
+    fetch('/api/status')
+      .then(r => r.json())
+      .then(d => setDataSource(d.source as 'live' | 'mock'))
+      .catch(() => setDataSource('mock'));
   }, []);
 
   return (
@@ -64,9 +72,15 @@ export function Nav() {
 
         {/* CTA */}
         <div className="hidden md:flex items-center gap-3">
-          <div className="flex items-center gap-1.5 text-xs text-emerald-400">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 pulse-dot" />
-            {/* Live */}
+          <div className={cn(
+            'flex items-center gap-1.5 text-xs font-medium',
+            dataSource === 'live' ? 'text-emerald-400' : dataSource === 'mock' ? 'text-amber-400' : 'text-gray-500'
+          )}>
+            <span className={cn(
+              'w-1.5 h-1.5 rounded-full',
+              dataSource === 'live' ? 'bg-emerald-400 pulse-dot' : dataSource === 'mock' ? 'bg-amber-400' : 'bg-gray-500'
+            )} />
+            {dataSource === 'live' ? 'LIVE' : dataSource === 'mock' ? 'DEMO' : '···'}
           </div>
           <Link
             href="/builder"

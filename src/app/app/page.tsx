@@ -40,6 +40,8 @@ export default function DashboardPage() {
     market: typeof MOCK_MARKET_DATA;
     etf: ETFData[];
     news: NewsItem[];
+    source: 'live' | 'mock';
+    fetchedAt: string;
   } | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -70,11 +72,22 @@ export default function DashboardPage() {
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-3xl font-black">Market <span className="gradient-text">Dashboard</span></h1>
-            <p className="text-gray-500 text-sm mt-1">Powered by SoSoValue API · Live data</p>
+            <p className="text-gray-500 text-sm mt-1">
+              Powered by SoSoValue API ·{' '}
+              {data?.fetchedAt
+                ? `Updated ${new Date(data.fetchedAt).toLocaleTimeString()}`
+                : 'Loading...'}
+            </p>
           </div>
-          <div className="flex items-center gap-2 text-xs text-emerald-400">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 pulse-dot" />
-            Live
+          <div className={cn(
+            'flex items-center gap-2 text-xs font-semibold',
+            data?.source === 'live' ? 'text-emerald-400' : 'text-amber-400'
+          )}>
+            <span className={cn(
+              'w-2 h-2 rounded-full',
+              data?.source === 'live' ? 'bg-emerald-400 pulse-dot' : 'bg-amber-400'
+            )} />
+            {data?.source === 'live' ? 'LIVE' : loading ? '···' : 'DEMO'}
           </div>
         </div>
 
