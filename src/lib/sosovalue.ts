@@ -1,4 +1,16 @@
+export type DataSource = 'live' | 'mock';
+
+export interface WithSource<T> {
+  data: T;
+  source: DataSource;
+  fetchedAt: string;
+}
+
 const SOSOVALUE_BASE = 'https://api.sosovalue.com/open/api';
+
+export function hasApiKey(): boolean {
+  return Boolean(process.env.SOSOVALUE_API_KEY?.trim());
+}
 
 const headers = () => ({
   'Content-Type': 'application/json',
@@ -15,28 +27,49 @@ async function fetchSSV<T>(path: string, params?: Record<string, string>): Promi
   return res.json();
 }
 
+function live<T>(data: T): WithSource<T> {
+  return { data, source: 'live', fetchedAt: new Date().toISOString() };
+}
+
+function mock<T>(data: T): WithSource<T> {
+  return { data, source: 'mock', fetchedAt: new Date().toISOString() };
+}
+
+export async function checkLiveness(): Promise<DataSource> {
+  if (!hasApiKey()) return 'mock';
+  try {
+    await fetchSSV('/v1/categories');
+    return 'live';
+  } catch {
+    return 'mock';
+  }
+}
+
 export async function getCategories() {
   try {
-    return await fetchSSV<{ data: Array<{ name: string; slug: string; description: string }> }>('/v1/categories');
+    const res = await fetchSSV<{ data: Array<{ name: string; slug: string; description: string }> }>('/v1/categories');
+    return live(res.data);
   } catch {
-    return { data: MOCK_CATEGORIES };
+    return mock(MOCK_CATEGORIES);
   }
 }
 
 export async function getMarketData(symbols?: string[]) {
   try {
     const params: Record<string, string> = symbols ? { symbols: symbols.join(',') } : {};
-    return await fetchSSV<{ data: MarketDataItem[] }>('/v1/coins/market-data', params);
+    const res = await fetchSSV<{ data: MarketDataItem[] }>('/v1/coins/market-data', params);
+    return live(res.data);
   } catch {
-    return { data: MOCK_MARKET_DATA };
+    return mock(MOCK_MARKET_DATA);
   }
 }
 
 export async function getETFData() {
   try {
-    return await fetchSSV<{ data: ETFItem[] }>('/v1/etfs/summary-history');
+    const res = await fetchSSV<{ data: ETFItem[] }>('/v1/etfs/summary-history');
+    return live(res.data);
   } catch {
-    return { data: MOCK_ETF_DATA };
+    return mock(MOCK_ETF_DATA);
   }
 }
 
@@ -44,25 +77,28 @@ export async function getNewsList(category?: string, limit = 20) {
   try {
     const params: Record<string, string> = { size: String(limit) };
     if (category) params.category = category;
-    return await fetchSSV<{ data: NewsItem[] }>('/v1/news/list', params);
+    const res = await fetchSSV<{ data: NewsItem[] }>('/v1/news/list', params);
+    return live(res.data);
   } catch {
-    return { data: MOCK_NEWS };
+    return mock(MOCK_NEWS);
   }
 }
 
 export async function getSSIList() {
   try {
-    return await fetchSSV<{ data: SSIItem[] }>('/v1/ssi/list');
+    const res = await fetchSSV<{ data: SSIItem[] }>('/v1/ssi/list');
+    return live(res.data);
   } catch {
-    return { data: MOCK_SSI };
+    return mock(MOCK_SSI);
   }
 }
 
 export async function getBTCTreasuries() {
   try {
-    return await fetchSSV<{ data: TreasuryItem[] }>('/v1/btc-treasuries');
+    const res = await fetchSSV<{ data: TreasuryItem[] }>('/v1/btc-treasuries');
+    return live(res.data);
   } catch {
-    return { data: [] };
+    return mock([] as TreasuryItem[]);
   }
 }
 

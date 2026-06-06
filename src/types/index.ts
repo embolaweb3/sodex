@@ -129,3 +129,22 @@ export interface ExecutionResult {
   executedAt: string;
   source: 'live' | 'mock';
 }
+
+export interface LiveIndexToken extends IndexToken {
+  launchPrice: number;
+}
+
+export type LiveIndex = Omit<CryptoIndex, 'constituents'> & {
+  constituents: LiveIndexToken[];
+  liveNAV: number;
+  liveReturn: number;
+  source: 'live' | 'mock';
+  updatedAt: string;
+  backtest: BacktestDataPoint[];
+};
+
+export interface IndexesApiResponse {
+  indexes: LiveIndex[];
+  source: 'live' | 'mock';
+  fetchedAt: string;
+}
