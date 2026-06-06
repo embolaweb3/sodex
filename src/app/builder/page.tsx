@@ -8,6 +8,7 @@ import {
 } from 'recharts';
 import { formatCurrency, formatPercent, getCategoryColor, cn } from '@/lib/utils';
 import type { BuildIndexResponse, ExecutionResult } from '@/types';
+import { useAccount } from 'wagmi';
 
 const Scene = dynamic(() => import('@/components/three/Scene').then(m => ({ default: m.Scene })), { ssr: false });
 
@@ -246,7 +247,7 @@ export default function BuilderPage() {
           )}
 
           {step === 'result' && result && (
-            <IndexResult result={result} onRebuild={() => { setStep('input'); setResult(null); }} />
+            <IndexResult result={result} riskLevel={risk} onRebuild={() => { setStep('input'); setResult(null); }} />
           )}
         </AnimatePresence>
       </div>
@@ -258,12 +259,52 @@ function truncateTxHash(hash: string) {
   return `${hash.slice(0, 10)}...${hash.slice(-8)}`;
 }
 
-function IndexResult({ result, onRebuild }: { result: BuildIndexResponse; onRebuild: () => void }) {
+interface PublishResult {
+  id: string;
+  methodologyHash: string;
+  source: 'live' | 'mock';
+  savedAt: string;
+}
+
+function IndexResult({
+  result,
+  riskLevel,
+  onRebuild,
+}: {
+  result: BuildIndexResponse;
+  riskLevel: string;
+  onRebuild: () => void;
+}) {
   const { index, reasoning, warnings, backtest } = result;
+  const { address, isConnected } = useAccount();
+
   const [execState, setExecState] = useState<'idle' | 'executing' | 'done'>('idle');
   const [execResult, setExecResult] = useState<ExecutionResult | null>(null);
   const [execError, setExecError] = useState('');
   const [copied, setCopied] = useState<string | null>(null);
+
+  const [publishState, setPublishState] = useState<'idle' | 'saving' | 'done'>('idle');
+  const [publishResult, setPublishResult] = useState<PublishResult | null>(null);
+  const [publishError, setPublishError] = useState('');
+
+  async function handlePublish() {
+    if (!isConnected || !address) return;
+    setPublishState('saving');
+    setPublishError('');
+    try {
+      const res = await fetch('/api/indexes/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ index, reasoning, warnings, backtest, walletAddress: address, riskLevel }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Publish failed');
+      setPublishResult(await res.json());
+      setPublishState('done');
+    } catch (err) {
+      setPublishError(err instanceof Error ? err.message : 'Publish failed');
+      setPublishState('idle');
+    }
+  }
 
   async function handleExecute() {
     setExecState('executing');
@@ -317,16 +358,38 @@ function IndexResult({ result, onRebuild }: { result: BuildIndexResponse; onRebu
               ))}
             </div>
           </div>
-          <div className="flex gap-3 flex-shrink-0">
+          <div className="flex gap-3 flex-shrink-0 flex-wrap">
             <button
               onClick={onRebuild}
               className="px-4 py-2 rounded-lg glass border border-white/10 hover:border-white/20 text-sm font-medium text-gray-300 hover:text-white transition-all"
             >
               ← Rebuild
             </button>
-            <button className="px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-sm font-bold text-white transition-all">
-              Publish Index
-            </button>
+
+            {publishState === 'done' && publishResult ? (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold">
+                ✓ Published
+              </div>
+            ) : (
+              <button
+                onClick={handlePublish}
+                disabled={!isConnected || publishState === 'saving'}
+                title={!isConnected ? 'Connect wallet to publish' : undefined}
+                className={cn(
+                  'px-4 py-2 rounded-lg text-sm font-bold text-white transition-all',
+                  isConnected && publishState !== 'saving'
+                    ? 'bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500'
+                    : 'bg-gray-800 text-gray-500 cursor-not-allowed'
+                )}
+              >
+                {publishState === 'saving' ? (
+                  <span className="flex items-center gap-2">
+                    <span className="w-3 h-3 rounded-full border-2 border-white/40 border-t-white animate-spin" />
+                    Saving...
+                  </span>
+                ) : isConnected ? 'Publish Index' : 'Connect Wallet to Publish'}
+              </button>
+            )}
           </div>
         </div>
 
@@ -460,6 +523,65 @@ function IndexResult({ result, onRebuild }: { result: BuildIndexResponse; onRebu
           </div>
         )}
       </div>
+
+      {/* Publish result — methodology hash */}
+      {publishState === 'done' && publishResult && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass rounded-2xl p-6 border border-emerald-500/20"
+        >
+          <div className="flex items-center gap-2 mb-4">
+            <span className="text-lg">✅</span>
+            <h3 className="font-bold text-white">Index Published</h3>
+            <span className={cn(
+              'text-xs px-2 py-0.5 rounded-md border font-semibold',
+              publishResult.source === 'live'
+                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+            )}>
+              {publishResult.source === 'live' ? '● Saved to DB' : '○ Demo mode'}
+            </span>
+          </div>
+
+          <div className="space-y-3">
+            <div>
+              <div className="text-xs text-gray-500 uppercase tracking-wider mb-1.5">Methodology Hash (keccak256)</div>
+              <div className="flex items-center gap-2 p-3 rounded-xl bg-black/40 border border-white/5">
+                <code className="font-mono text-xs text-cyan-400 flex-1 break-all">
+                  {publishResult.methodologyHash}
+                </code>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(publishResult.methodologyHash).catch(() => {});
+                    setCopied('hash');
+                    setTimeout(() => setCopied(null), 2000);
+                  }}
+                  className="flex-shrink-0 text-gray-500 hover:text-gray-300 transition-colors text-sm"
+                >
+                  {copied === 'hash' ? '✓' : '⎘'}
+                </button>
+              </div>
+              <p className="text-xs text-gray-600 mt-1.5">
+                Deterministic fingerprint of your index methodology. Anyone can verify it by recomputing from the thesis + constituent weights.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t border-white/5">
+              <span>Published {new Date(publishResult.savedAt).toLocaleString()}</span>
+              <a href="/indexes" className="text-indigo-400 hover:text-indigo-300 transition-colors">
+                View in Marketplace →
+              </a>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
+      {publishError && (
+        <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+          {publishError}
+        </div>
+      )}
 
       {/* Execution Panel */}
       <div className="glass rounded-2xl p-6 border border-cyan-500/10">
