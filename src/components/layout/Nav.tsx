@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
+import { ConnectWallet } from '@/components/wallet/ConnectWallet';
 
 const navLinks = [
   { href: '/app', label: 'Dashboard' },
@@ -82,6 +83,7 @@ export function Nav() {
             )} />
             {dataSource === 'live' ? 'LIVE' : dataSource === 'mock' ? 'DEMO' : '···'}
           </div>
+          <ConnectWallet />
           <Link
             href="/builder"
             className="px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-sm font-semibold text-white transition-all duration-200 glow-indigo"
