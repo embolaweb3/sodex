@@ -5,6 +5,13 @@ import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { formatPercent, cn } from '@/lib/utils';
 import type { LiveIndex, IndexesApiResponse } from '@/types';
+import { useAccount } from 'wagmi';
+
+const ETF_SIGNAL_CHIPS = {
+  bullish: { label: '↑ ETF Inflows', cls: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' },
+  bearish: { label: '↓ ETF Outflows', cls: 'bg-red-500/10 text-red-400 border-red-500/20' },
+  neutral: { label: '→ Neutral', cls: 'bg-gray-500/10 text-gray-400 border-gray-500/20' },
+};
 
 const CATEGORIES = ['All', 'AI', 'DeFi', 'RWA', 'L1', 'L2', 'Gaming', 'Infrastructure'];
 const SORT_OPTIONS = [
@@ -32,6 +39,8 @@ export default function MarketplacePage() {
   const [dataSource, setDataSource] = useState<'live' | 'mock' | null>(null);
   const [fetchedAt, setFetchedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [follows, setFollows] = useState<string[]>([]);
+  const { address } = useAccount();
 
   useEffect(() => {
     fetch('/api/indexes')
@@ -44,6 +53,14 @@ export default function MarketplacePage() {
       })
       .catch(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    try {
+      const key = `prism_follows_${address ?? 'anon'}`;
+      const stored: string[] = JSON.parse(localStorage.getItem(key) ?? '[]');
+      setFollows(stored);
+    } catch { /* ignore */ }
+  }, [address]);
 
   const filtered = indexes
     .filter(idx => {
@@ -155,6 +172,8 @@ export default function MarketplacePage() {
               const cat = idx.category || 'Other';
               const styles = CATEGORY_STYLES[cat] || { bg: 'bg-zinc-500/10', text: 'text-zinc-400', border: 'border-zinc-500/20' };
               const returnIsPositive = idx.liveReturn >= 0;
+              const isFollowing = follows.includes(idx.id);
+              const etfChip = ETF_SIGNAL_CHIPS[idx.etfSignal ?? 'neutral'];
               return (
                 <motion.div
                   key={idx.id}
@@ -164,16 +183,25 @@ export default function MarketplacePage() {
                   whileHover={{ y: -3, transition: { duration: 0.2 } }}
                 >
                   <Link href={`/indexes/${idx.id}`} className="block h-full">
-                    <div className="glass rounded-2xl p-5 border border-white/5 hover:border-indigo-500/25 transition-all duration-300 h-full flex flex-col">
+                    <div className={cn(
+                      'glass rounded-2xl p-5 border transition-all duration-300 h-full flex flex-col',
+                      isFollowing ? 'border-indigo-500/30 hover:border-indigo-500/50' : 'border-white/5 hover:border-indigo-500/25'
+                    )}>
                       {/* Top */}
                       <div className="flex items-start justify-between mb-3">
                         <div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             <span className={cn('text-xs px-2 py-0.5 rounded-md border font-medium', styles.bg, styles.text, styles.border)}>
                               {cat}
                             </span>
                             {idx.source === 'live' && (
                               <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">● LIVE</span>
+                            )}
+                            {idx.maxDrift > 5 && (
+                              <span className="text-xs px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium">⚠ Rebalance</span>
+                            )}
+                            {isFollowing && (
+                              <span className="text-xs px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-medium">✓ Following</span>
                             )}
                           </div>
                           <h3 className="mt-2 font-bold text-white text-base leading-tight">{idx.name}</h3>
@@ -187,7 +215,14 @@ export default function MarketplacePage() {
                         </div>
                       </div>
 
-                      <p className="text-xs text-gray-400 line-clamp-2 flex-1 mb-4">{idx.thesis}</p>
+                      <p className="text-xs text-gray-400 line-clamp-2 flex-1 mb-3">{idx.thesis}</p>
+
+                      {/* ETF signal chip */}
+                      <div className="mb-3">
+                        <span className={cn('text-xs px-2 py-0.5 rounded-md border font-medium', etfChip.cls)}>
+                          {etfChip.label}
+                        </span>
+                      </div>
 
                       {/* Token pills */}
                       <div className="flex gap-1.5 flex-wrap mb-4">

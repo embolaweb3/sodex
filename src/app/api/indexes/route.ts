@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { getMarketData } from '@/lib/sosovalue';
-import type { LiveIndex, BacktestDataPoint } from '@/types';
+import { getMarketData, getETFData } from '@/lib/sosovalue';
+import type { LiveIndex, BacktestDataPoint, DriftEntry } from '@/types';
 
 // Inception prices — what each constituent cost when the index was published
 const LAUNCH_PRICES: Record<string, number> = {
@@ -144,8 +144,15 @@ const SEED_DEFINITIONS = [
 ];
 
 export async function GET() {
-  const marketResult = await getMarketData();
+  const [marketResult, etfResult] = await Promise.all([getMarketData(), getETFData()]);
   const liveMarket = marketResult.data;
+
+  // ETF signal from 7-day BTC net flow
+  const last7 = etfResult.data.slice(-7);
+  const btcFlow7d = last7.reduce((s, d) => s + d.btcNetFlow, 0);
+  const etfSignal: 'bullish' | 'bearish' | 'neutral' =
+    btcFlow7d > 200_000_000 ? 'bullish' :
+    btcFlow7d < -200_000_000 ? 'bearish' : 'neutral';
 
   const indexes: LiveIndex[] = SEED_DEFINITIONS.map(def => {
     const constituents = def.constituents.map(c => {
@@ -165,6 +172,21 @@ export async function GET() {
       0
     );
     const liveReturn = parseFloat(((liveNAV / 1000 - 1) * 100).toFixed(2));
+
+    // Drift: compare actual portfolio weights (after price moves) vs target weights
+    const driftData: DriftEntry[] = constituents.map(c => {
+      const currentValue = (c.weight / 100 * 1000 / c.launchPrice) * c.price;
+      const actualWeight = parseFloat(((currentValue / liveNAV) * 100).toFixed(1));
+      return {
+        symbol: c.symbol,
+        targetWeight: c.weight,
+        actualWeight,
+        drift: parseFloat((actualWeight - c.weight).toFixed(1)),
+      };
+    });
+    const maxDrift = parseFloat(
+      Math.max(...driftData.map(d => Math.abs(d.drift))).toFixed(1)
+    );
 
     return {
       id: def.id,
@@ -186,6 +208,9 @@ export async function GET() {
       liveReturn,
       source: marketResult.source,
       backtest: generateBacktest(90, def.btAlpha),
+      driftData,
+      maxDrift,
+      etfSignal,
     };
   });
 

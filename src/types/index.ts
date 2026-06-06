@@ -134,6 +134,13 @@ export interface LiveIndexToken extends IndexToken {
   launchPrice: number;
 }
 
+export interface DriftEntry {
+  symbol: string;
+  targetWeight: number;
+  actualWeight: number;
+  drift: number; // positive = overweight vs target, negative = underweight
+}
+
 export type LiveIndex = Omit<CryptoIndex, 'constituents'> & {
   constituents: LiveIndexToken[];
   liveNAV: number;
@@ -141,6 +148,9 @@ export type LiveIndex = Omit<CryptoIndex, 'constituents'> & {
   source: 'live' | 'mock';
   updatedAt: string;
   backtest: BacktestDataPoint[];
+  driftData: DriftEntry[];
+  maxDrift: number;
+  etfSignal: 'bullish' | 'bearish' | 'neutral';
 };
 
 export interface IndexesApiResponse {

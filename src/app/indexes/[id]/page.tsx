@@ -1,7 +1,7 @@
 'use client';
 
 import { useParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import {
@@ -10,12 +10,47 @@ import {
 } from 'recharts';
 import { formatCurrency, formatPercent, getCategoryColor, cn } from '@/lib/utils';
 import type { LiveIndex, IndexesApiResponse } from '@/types';
+import { useAccount } from 'wagmi';
+
+const ETF_SIGNAL_STYLES = {
+  bullish: { label: '↑ ETF Inflows', cls: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' },
+  bearish: { label: '↓ ETF Outflows', cls: 'bg-red-500/10 text-red-400 border-red-500/20' },
+  neutral: { label: '→ ETF Neutral', cls: 'bg-gray-500/10 text-gray-400 border-gray-500/20' },
+};
+
+function useFollow(id: string, walletAddress: string | undefined) {
+  const key = `prism_follows_${walletAddress ?? 'anon'}`;
+  const [following, setFollowing] = useState(false);
+
+  useEffect(() => {
+    try {
+      const stored: string[] = JSON.parse(localStorage.getItem(key) ?? '[]');
+      setFollowing(stored.includes(id));
+    } catch { /* ignore */ }
+  }, [id, key]);
+
+  const toggle = useCallback(() => {
+    setFollowing(prev => {
+      const next = !prev;
+      try {
+        const stored: string[] = JSON.parse(localStorage.getItem(key) ?? '[]');
+        const updated = next ? [...stored, id] : stored.filter(x => x !== id);
+        localStorage.setItem(key, JSON.stringify(updated));
+      } catch { /* ignore */ }
+      return next;
+    });
+  }, [id, key]);
+
+  return { following, toggle };
+}
 
 export default function IndexDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [idx, setIdx] = useState<LiveIndex | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [loading, setLoading] = useState(true);
+  const { address } = useAccount();
+  const { following, toggle: toggleFollow } = useFollow(id, address);
 
   useEffect(() => {
     fetch('/api/indexes')
@@ -81,6 +116,17 @@ export default function IndexDetailPage() {
                 )}>
                   {idx.source === 'live' ? '● LIVE' : '○ DEMO'}
                 </span>
+                <span className={cn(
+                  'text-xs px-2 py-0.5 rounded-md border font-semibold',
+                  ETF_SIGNAL_STYLES[idx.etfSignal].cls
+                )}>
+                  {ETF_SIGNAL_STYLES[idx.etfSignal].label}
+                </span>
+                {idx.maxDrift > 5 && (
+                  <span className="text-xs px-2 py-0.5 rounded-md border font-semibold bg-amber-500/10 text-amber-400 border-amber-500/20">
+                    ⚠ Rebalance Needed
+                  </span>
+                )}
               </div>
               <p className="text-gray-400 mb-4">{idx.description}</p>
               <div className="flex flex-wrap gap-2 mb-4">
@@ -98,10 +144,21 @@ export default function IndexDetailPage() {
               </div>
             </div>
             <div className="flex gap-3 flex-shrink-0">
-              <button className="px-5 py-2.5 rounded-xl glass border border-white/10 hover:border-indigo-500/30 text-sm font-semibold text-gray-300 hover:text-white transition-all">
-                + Follow
+              <button
+                onClick={toggleFollow}
+                className={cn(
+                  'px-5 py-2.5 rounded-xl text-sm font-semibold transition-all',
+                  following
+                    ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10'
+                    : 'glass border border-white/10 hover:border-indigo-500/30 text-gray-300 hover:text-white'
+                )}
+              >
+                {following ? '✓ Following' : '+ Follow'}
               </button>
-              <Link href="/builder" className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 text-sm font-bold text-white hover:from-indigo-500 hover:to-violet-500 transition-all">
+              <Link
+                href={`/builder?thesis=${encodeURIComponent(idx.thesis)}&fork=${idx.id}`}
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 text-sm font-bold text-white hover:from-indigo-500 hover:to-violet-500 transition-all"
+              >
                 Fork Index
               </Link>
             </div>
@@ -234,6 +291,75 @@ export default function IndexDetailPage() {
             })}
           </div>
         </motion.div>
+
+        {/* Drift Breakdown */}
+        {idx.driftData && idx.driftData.length > 0 && (
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }} className="glass rounded-2xl p-6 border border-white/10 mt-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="font-bold text-white">Weight Drift Analysis</h3>
+                <p className="text-xs text-gray-500 mt-0.5">Actual portfolio weights after price moves vs target allocations</p>
+              </div>
+              {idx.maxDrift > 5 ? (
+                <span className="text-xs px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold">
+                  ⚠ Max drift {idx.maxDrift.toFixed(1)}% — rebalance recommended
+                </span>
+              ) : (
+                <span className="text-xs px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold">
+                  ✓ Within bounds ({idx.maxDrift.toFixed(1)}% max drift)
+                </span>
+              )}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-gray-500 border-b border-white/5">
+                    <th className="text-left pb-2 font-medium">Token</th>
+                    <th className="text-right pb-2 font-medium">Target</th>
+                    <th className="text-right pb-2 font-medium">Actual</th>
+                    <th className="text-right pb-2 font-medium">Drift</th>
+                    <th className="text-left pb-2 pl-4 font-medium">Visual</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                  {idx.driftData.map(d => {
+                    const over = d.drift > 0;
+                    const barWidth = Math.min(Math.abs(d.drift) * 10, 100);
+                    return (
+                      <tr key={d.symbol} className="py-2">
+                        <td className="py-2.5 font-mono font-bold text-white">{d.symbol}</td>
+                        <td className="py-2.5 text-right text-gray-400">{d.targetWeight.toFixed(1)}%</td>
+                        <td className={cn(
+                          'py-2.5 text-right font-semibold',
+                          over ? 'text-amber-400' : 'text-cyan-400'
+                        )}>
+                          {d.actualWeight.toFixed(1)}%
+                        </td>
+                        <td className={cn(
+                          'py-2.5 text-right font-bold',
+                          over ? 'text-amber-400' : d.drift < 0 ? 'text-cyan-400' : 'text-gray-400'
+                        )}>
+                          {over ? '+' : ''}{d.drift.toFixed(1)}%
+                        </td>
+                        <td className="py-2.5 pl-4">
+                          <div className="flex items-center gap-2">
+                            <div className="w-24 h-2 rounded-full bg-white/5 overflow-hidden">
+                              <div
+                                className={cn('h-full rounded-full', over ? 'bg-amber-400/70' : 'bg-cyan-400/70')}
+                                style={{ width: `${barWidth}%` }}
+                              />
+                            </div>
+                            <span className="text-xs text-gray-600">{over ? 'over' : 'under'}</span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </motion.div>
+        )}
       </div>
     </div>
   );

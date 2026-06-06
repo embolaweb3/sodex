@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, Suspense } from 'react';
+import { useState, Suspense, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -36,6 +36,13 @@ export default function BuilderPage() {
   const [error, setError] = useState('');
   const [step, setStep] = useState<'input' | 'building' | 'result'>('input');
   const [buildingStep, setBuildingStep] = useState(0);
+
+  // Pre-fill from fork query param
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const forkedThesis = params.get('thesis');
+    if (forkedThesis) setThesis(decodeURIComponent(forkedThesis));
+  }, []);
 
   const BUILDING_STEPS = [
     'Querying SoSoValue market data...',
