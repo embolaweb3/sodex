@@ -72,7 +72,7 @@ export function HowItWorks() {
             {' '}in minutes
           </h2>
           <p className="mt-4 text-gray-400 max-w-xl mx-auto">
-            IndexForge replaces weeks of research and manual rebalancing with an AI-powered pipeline
+            Prism replaces weeks of research and manual rebalancing with an AI-powered pipeline
             backed by institutional-grade market intelligence.
           </p>
         </motion.div>

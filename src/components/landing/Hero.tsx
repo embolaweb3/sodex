@@ -73,7 +73,7 @@ export function Hero() {
           transition={{ duration: 0.6, delay: 0.25 }}
           className="mt-6 text-lg sm:text-xl text-gray-400 max-w-2xl leading-relaxed"
         >
-          Describe your investment thesis in plain English. IndexForge uses institutional-grade
+          Describe your investment thesis in plain English. Prism uses institutional-grade
           SoSoValue data and AI to build, backtest, and publish a weighted on-chain crypto index —
           then execute rebalancing through SoDEX.
         </motion.p>

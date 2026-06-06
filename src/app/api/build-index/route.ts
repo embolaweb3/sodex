@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     // Fetch live market data (falls back to mock if no API key)
     const marketData = MOCK_MARKET_DATA;
 
-    const systemPrompt = `You are IndexForge's AI index construction engine. You analyze investment theses and construct weighted cryptocurrency indexes using institutional-grade market data from SoSoValue.
+    const systemPrompt = `You are Prism's AI index construction engine. You analyze investment theses and construct weighted cryptocurrency indexes using institutional-grade market data from SoSoValue.
 
 Your output must be valid JSON matching this exact structure:
 {

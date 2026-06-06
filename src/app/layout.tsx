@@ -3,11 +3,11 @@ import './globals.css';
 import { Nav } from '@/components/layout/Nav';
 
 export const metadata: Metadata = {
-  title: 'IndexForge — Build On-Chain Thematic Indexes with AI',
+  title: 'Prism — Build On-Chain Thematic Indexes with AI',
   description: 'Describe your investment thesis. AI builds a weighted crypto index. Backtest it. Publish it on-chain. Execute through SoDEX.',
-  keywords: ['crypto index', 'DeFi', 'SoSoValue', 'AI investing', 'on-chain', 'thematic ETF'],
+  keywords: ['crypto index', 'DeFi', 'SoSoValue', 'AI investing', 'on-chain', 'thematic ETF', 'Prism'],
   openGraph: {
-    title: 'IndexForge',
+    title: 'Prism',
     description: 'Anyone can be an index fund manager.',
     type: 'website',
   },

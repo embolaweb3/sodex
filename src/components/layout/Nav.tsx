@@ -44,11 +44,11 @@ export function Nav() {
           <div className="relative w-8 h-8">
             <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 opacity-90 group-hover:opacity-100 transition-opacity" />
             <div className="absolute inset-0.5 rounded-md bg-[#030712] flex items-center justify-center">
-              <span className="text-xs font-black text-transparent bg-gradient-to-br from-indigo-400 to-cyan-400 bg-clip-text">IF</span>
+              <span className="text-xs font-black text-transparent bg-gradient-to-br from-indigo-400 to-cyan-400 bg-clip-text">PR</span>
             </div>
           </div>
           <span className="font-bold text-lg tracking-tight">
-            Index<span className="gradient-text">Forge</span>
+            <span className="gradient-text">Prism</span>
           </span>
         </Link>
 
