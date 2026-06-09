@@ -133,15 +133,41 @@ export async function getETFData() {
     const btcRaw: Array<Record<string, any>> =
       btcRes.status === 'fulfilled' ? (btcRes.value?.data ?? []) : [];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const ethMap = new Map<string, Record<string, any>>();
-    if (ethRes.status === 'fulfilled') {
-      (ethRes.value?.data ?? []).forEach((d: Record<string, unknown>) => ethMap.set(String(d.date), d));
-    }
+    const ethRaw: Array<Record<string, any>> =
+      ethRes.status === 'fulfilled' ? (ethRes.value?.data ?? []) : [];
 
-    const items: ETFItem[] = btcRaw.map(d => {
-      const eth = ethMap.get(String(d.date)) ?? {};
+    console.log(`[SoSoValue] ETF BTC rows: ${btcRaw.length}, ETH rows: ${ethRaw.length}`);
+    if (btcRaw.length > 0) console.log('[SoSoValue] BTC dates[0]:', JSON.stringify(btcRaw[0]).slice(0, 200));
+    if (ethRaw.length > 0) console.log('[SoSoValue] ETH dates[0]:', JSON.stringify(ethRaw[0]).slice(0, 200));
+
+    // Build date-keyed map for ETH — try every plausible date field name
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ethMap = new Map<string, Record<string, any>>();
+    ethRaw.forEach(d => {
+      const dateKey = String(d.date ?? d.trade_date ?? d.statistic_date ?? d.stat_date ?? '');
+      if (dateKey) ethMap.set(dateKey, d);
+    });
+
+    // Check if date-merge produces any ETH hits; if not, fall back to index-aligned merge
+    const sampleBtcDate = btcRaw.length > 0
+      ? String(btcRaw[0].date ?? btcRaw[0].trade_date ?? btcRaw[0].statistic_date ?? '')
+      : '';
+    const dateAlignWorks = sampleBtcDate ? ethMap.has(sampleBtcDate) : false;
+    console.log(`[SoSoValue] ETH date-align works: ${dateAlignWorks}, ethMapSize: ${ethMap.size}`);
+
+    const items: ETFItem[] = btcRaw.map((d, i) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let eth: Record<string, any>;
+      if (dateAlignWorks) {
+        const btcDate = String(d.date ?? d.trade_date ?? d.statistic_date ?? '');
+        eth = ethMap.get(btcDate) ?? {};
+      } else {
+        // Index-aligned fallback — ETH and BTC ETF data usually covers same trading days
+        eth = ethRaw[i] ?? {};
+      }
+      const btcDate = String(d.date ?? d.trade_date ?? d.statistic_date ?? d.stat_date ?? '');
       return {
-        date: String(d.date ?? ''),
+        date: btcDate,
         btcNetFlow: Number(d.total_net_inflow ?? 0),
         ethNetFlow: Number(eth.total_net_inflow ?? 0),
         totalAum: Number(d.total_net_assets ?? 0) + Number(eth.total_net_assets ?? 0),
@@ -150,6 +176,7 @@ export async function getETFData() {
       };
     });
 
+    console.log(`[SoSoValue] ETF final: ${items.length} rows, last ethAum: ${items[items.length - 1]?.ethAum}`);
     return live(items);
   } catch (err) {
     console.error('[SoSoValue] getETFData failed:', err instanceof Error ? err.message : err);
