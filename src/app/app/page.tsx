@@ -6,7 +6,6 @@ import {
   BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts';
 import { formatCurrency, formatPercent, formatNumber, getChangeColor, cn } from '@/lib/utils';
-import { MOCK_MARKET_DATA } from '@/lib/sosovalue';
 import Link from 'next/link';
 
 interface ETFData {
@@ -25,6 +24,7 @@ interface NewsItem {
   publishedAt: string;
   source: string;
   categories: string[];
+  url?: string;
 }
 
 function timeSince(date: string) {
@@ -35,9 +35,20 @@ function timeSince(date: string) {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
+interface MarketItem {
+  symbol: string;
+  name: string;
+  price: number;
+  change24h: number;
+  change7d: number;
+  marketCap: number;
+  volume24h: number;
+  category: string;
+}
+
 export default function DashboardPage() {
   const [data, setData] = useState<{
-    market: typeof MOCK_MARKET_DATA;
+    market: MarketItem[];
     etf: ETFData[];
     news: NewsItem[];
     source: 'live' | 'mock';
@@ -52,7 +63,7 @@ export default function DashboardPage() {
       .catch(() => setLoading(false));
   }, []);
 
-  const market = data?.market || MOCK_MARKET_DATA;
+  const market = data?.market || [];
   const etf = data?.etf || [];
   const news = data?.news || [];
 
@@ -253,7 +264,7 @@ export default function DashboardPage() {
               <span className="text-xs px-2 py-1 rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">SoSoValue News</span>
             </div>
             <div className="space-y-4">
-              {(news.length > 0 ? news : MOCK_NEWS_ITEMS).map((item, i) => (
+              {news.map((item, i) => (
                 <motion.div
                   key={i}
                   initial={{ opacity: 0, x: 10 }}
@@ -263,9 +274,14 @@ export default function DashboardPage() {
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2">
-                      <p className="text-sm text-gray-300 leading-snug line-clamp-2 font-medium">
+                      <a
+                        href={(item as NewsItem).url ?? '#'}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-gray-300 leading-snug line-clamp-2 font-medium hover:text-white transition-colors"
+                      >
                         {(item as NewsItem).title}
-                      </p>
+                      </a>
                     </div>
                     <div className="flex items-center gap-2 mt-1.5">
                       {((item as NewsItem).categories || []).slice(0, 2).map(cat => (
@@ -290,10 +306,3 @@ export default function DashboardPage() {
   );
 }
 
-const MOCK_NEWS_ITEMS = [
-  { title: 'BlackRock Bitcoin ETF records largest single-day inflow of $820M amid BTC rally above $94K', categories: ['BTC', 'ETF'], publishedAt: new Date().toISOString() },
-  { title: 'AI tokens surge 25% as Bittensor launches new subnet for financial intelligence on SoSoValue', categories: ['AI'], publishedAt: new Date(Date.now() - 3600000).toISOString() },
-  { title: 'DeFi TVL hits $180B as Aave and Pendle see record deposits from institutional players', categories: ['DeFi'], publishedAt: new Date(Date.now() - 7200000).toISOString() },
-  { title: 'RWA tokenization market crosses $15B as Ondo Finance expands to new EVM chains', categories: ['RWA'], publishedAt: new Date(Date.now() - 10800000).toISOString() },
-  { title: 'Ethereum L2 ecosystem sees $2.4B in weekly volume as Arbitrum leads with 58% market share', categories: ['L2', 'ETH'], publishedAt: new Date(Date.now() - 18000000).toISOString() },
-];

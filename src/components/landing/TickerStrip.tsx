@@ -1,13 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { MOCK_MARKET_DATA } from '@/lib/sosovalue';
 import { formatCurrency, formatPercent } from '@/lib/utils';
 
 type TokenItem = { symbol: string; name: string; price: number; change24h: number; category: string };
 
 export function TickerStrip() {
-  const [tokens, setTokens] = useState<TokenItem[]>(MOCK_MARKET_DATA);
+  const [tokens, setTokens] = useState<TokenItem[]>([]);
 
   useEffect(() => {
     fetch('/api/market-data')
@@ -15,6 +14,13 @@ export function TickerStrip() {
       .then(d => { if (d.market?.length) setTokens(d.market); })
       .catch(() => {});
   }, []);
+
+  if (tokens.length === 0) return (
+    <div className="border-y border-white/5 bg-black/40 py-2.5 flex items-center justify-center gap-2">
+      <div className="w-3 h-3 rounded-full border border-white/20 border-t-white/60 animate-spin" />
+      <span className="text-xs text-gray-600">Loading market data...</span>
+    </div>
+  );
 
   const doubled = [...tokens, ...tokens];
 

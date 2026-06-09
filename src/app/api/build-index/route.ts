@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { MOCK_MARKET_DATA } from '@/lib/sosovalue';
+import { getMarketData } from '@/lib/sosovalue';
 import type { BuildIndexRequest, CryptoIndex, IndexToken, BacktestDataPoint } from '@/types';
 import { generateId } from '@/lib/utils';
 
@@ -15,8 +15,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Thesis must be at least 10 characters' }, { status: 400 });
     }
 
-    // Fetch live market data (falls back to mock if no API key)
-    const marketData = MOCK_MARKET_DATA;
+    const { data: marketData } = await getMarketData();
 
     const systemPrompt = `You are Prism's AI index construction engine. You analyze investment theses and construct weighted cryptocurrency indexes using institutional-grade market data from SoSoValue.
 

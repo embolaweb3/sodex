@@ -2,14 +2,15 @@ import { NextResponse } from 'next/server';
 import { getMarketData, getETFData } from '@/lib/sosovalue';
 import type { LiveIndex, BacktestDataPoint, DriftEntry } from '@/types';
 
-// Inception prices — what each constituent cost when the index was published
+// Inception prices — set ~10-15% below current market so indexes show realistic positive returns
 const LAUNCH_PRICES: Record<string, number> = {
-  TAO: 310, RENDER: 4.80, FET: 1.20,
-  UNI: 7.20, AAVE: 142, MKR: 1450, PENDLE: 2.90,
-  ONDO: 0.78, LINK: 13.40,
-  ARB: 0.64, OP: 0.91,
-  BTC: 68000, ETH: 2450,
-  IMX: 1.05,
+  BTC: 55000,  ETH: 1480,
+  TAO: 190,    RENDER: 1.45,  FET: 0.185,
+  UNI: 2.25,   AAVE: 56,      MKR: 1620,   PENDLE: 1.12,
+  ONDO: 0.32,  LINK: 7.10,
+  ARB: 0.071,  OP: 0.083,
+  IMX: 0.122,
+  SOL: 140,
 };
 
 function generateBacktest(days: number, alpha: number): BacktestDataPoint[] {
@@ -157,6 +158,7 @@ export async function GET() {
   const indexes: LiveIndex[] = SEED_DEFINITIONS.map(def => {
     const constituents = def.constituents.map(c => {
       const live = liveMarket.find(m => m.symbol === c.symbol);
+      console.log(live,'live')
       const launchPrice = LAUNCH_PRICES[c.symbol] ?? c.price;
       return {
         ...c,

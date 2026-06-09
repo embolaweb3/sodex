@@ -6,7 +6,7 @@ export interface WithSource<T> {
   fetchedAt: string;
 }
 
-const SOSOVALUE_BASE = 'https://api.sosovalue.com/open/api';
+const SOSOVALUE_BASE = 'https://openapi.sosovalue.com/openapi/v1';
 
 export function hasApiKey(): boolean {
   return Boolean(process.env.SOSOVALUE_API_KEY?.trim());
@@ -14,7 +14,7 @@ export function hasApiKey(): boolean {
 
 const headers = () => ({
   'Content-Type': 'application/json',
-  'Authorization': `Bearer ${process.env.SOSOVALUE_API_KEY || ''}`,
+  'x-soso-api-key': process.env.SOSOVALUE_API_KEY || '',
 });
 
 async function fetchSSV<T>(path: string, params?: Record<string, string>): Promise<T> {
@@ -38,47 +38,174 @@ function mock<T>(data: T): WithSource<T> {
 export async function checkLiveness(): Promise<DataSource> {
   if (!hasApiKey()) return 'mock';
   try {
-    await fetchSSV('/v1/categories');
+    await fetchSSV('/currencies');
     return 'live';
-  } catch {
+  } catch (err) {
+    console.error('[SoSoValue] checkLiveness failed:', err instanceof Error ? err.message : err);
     return 'mock';
   }
 }
 
 export async function getCategories() {
   try {
-    const res = await fetchSSV<{ data: Array<{ name: string; slug: string; description: string }> }>('/v1/categories');
+    const res = await fetchSSV<{ data: Array<{ name: string; slug: string; description: string }> }>('/currencies/sector-spotlight');
     return live(res.data);
   } catch {
     return mock(MOCK_CATEGORIES);
   }
 }
 
-export async function getMarketData(symbols?: string[]) {
+// Static category map — avoids a separate API call per token
+const SYMBOL_CATEGORY: Record<string, string> = {
+  BTC: 'L1', ETH: 'L1', SOL: 'L1',
+  ARB: 'L2', OP: 'L2',
+  UNI: 'DeFi', AAVE: 'DeFi', MKR: 'DeFi', PENDLE: 'DeFi',
+  RENDER: 'AI', TAO: 'AI', FET: 'AI',
+  LINK: 'Infrastructure',
+  ONDO: 'RWA',
+  IMX: 'Gaming',
+};
+
+const TARGET_SYMBOLS = new Set(Object.keys(SYMBOL_CATEGORY));
+
+export async function getMarketData() {
   try {
-    const params: Record<string, string> = symbols ? { symbols: symbols.join(',') } : {};
-    const res = await fetchSSV<{ data: MarketDataItem[] }>('/v1/coins/market-data', params);
-    return live(res.data);
-  } catch {
+    // Step 1: get currency list to resolve symbol → currency_id
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const listRes = await fetchSSV<any>('/currencies');
+    const allCurrencies: Array<{ currency_id: string; symbol: string; name: string }> =
+      listRes?.data ?? listRes ?? [];
+
+    const targets = allCurrencies.filter(c => TARGET_SYMBOLS.has(c.symbol?.toUpperCase()));
+    if (targets.length === 0) return mock(MOCK_MARKET_DATA);
+
+    // Step 2: fetch market snapshot for each target token in parallel
+    const snapshots = await Promise.allSettled(
+      targets.map(async c => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const r = await fetchSSV<any>(`/currencies/${c.currency_id}/market-snapshot`);
+        const s = r?.data ?? r ?? {};
+        return {
+          symbol: c.symbol.toUpperCase(),
+          name: c.name,
+          price: Number(s.price ?? 0),
+          // API returns decimal fraction (e.g. -0.0161 = -1.61%)
+          change24h: Number(s.change_pct_24h ?? 0) * 100,
+          change7d: 0,
+          marketCap: Number(s.marketcap ?? 0),
+          volume24h: Number(s.turnover_24h ?? 0),
+          category: SYMBOL_CATEGORY[c.symbol.toUpperCase()] ?? 'Other',
+        } as MarketDataItem;
+      })
+    );
+
+    const liveItems = snapshots
+      .filter((r): r is PromiseFulfilledResult<MarketDataItem> => r.status === 'fulfilled')
+      .map(r => r.value)
+      .filter(item => item.price > 0);
+
+    // Build a map of live prices; for tokens not returned by API, fall back to mock prices
+    const liveMap = new Map(liveItems.map(i => [i.symbol, i]));
+    const merged: MarketDataItem[] = MOCK_MARKET_DATA.map(m =>
+      liveMap.get(m.symbol) ?? m
+    );
+
+    return live(merged);
+  } catch (err) {
+    console.error('[SoSoValue] getMarketData failed:', err instanceof Error ? err.message : err);
     return mock(MOCK_MARKET_DATA);
   }
 }
 
 export async function getETFData() {
   try {
-    const res = await fetchSSV<{ data: ETFItem[] }>('/v1/etfs/summary-history');
-    return live(res.data);
-  } catch {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(end.getDate() - 30);
+    const fmt = (d: Date) => d.toISOString().split('T')[0];
+
+    const params = { symbol: 'BTC', country_code: 'US', limit: '30', start_date: fmt(start), end_date: fmt(end) };
+    const ethParams = { symbol: 'ETH', country_code: 'US', limit: '30', start_date: fmt(start), end_date: fmt(end) };
+
+    const [btcRes, ethRes] = await Promise.allSettled([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      fetchSSV<any>('/etfs/summary-history', params),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      fetchSSV<any>('/etfs/summary-history', ethParams),
+    ]);
+
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const btcRaw: Array<Record<string, any>> =
+      btcRes.status === 'fulfilled' ? (btcRes.value?.data ?? []) : [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ethMap = new Map<string, Record<string, any>>();
+    if (ethRes.status === 'fulfilled') {
+      (ethRes.value?.data ?? []).forEach((d: Record<string, unknown>) => ethMap.set(String(d.date), d));
+    }
+
+    const items: ETFItem[] = btcRaw.map(d => {
+      const eth = ethMap.get(String(d.date)) ?? {};
+      return {
+        date: String(d.date ?? ''),
+        btcNetFlow: Number(d.total_net_inflow ?? 0),
+        ethNetFlow: Number(eth.total_net_inflow ?? 0),
+        totalAum: Number(d.total_net_assets ?? 0) + Number(eth.total_net_assets ?? 0),
+        btcAum: Number(d.total_net_assets ?? 0),
+        ethAum: Number(eth.total_net_assets ?? 0),
+      };
+    });
+
+    console.log(`[SoSoValue] getETFData: ${items.length} days (BTC + ETH)`);
+    return items.length > 0 ? live(items) : mock(MOCK_ETF_DATA);
+  } catch (err) {
+    console.error('[SoSoValue] getETFData failed:', err instanceof Error ? err.message : err);
     return mock(MOCK_ETF_DATA);
   }
 }
 
+function stripHtml(str: string): string {
+  return str.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapNewsItem(n: any): NewsItem {
+  const rawTitle = String(n.title ?? '').trim();
+  const rawSummary = stripHtml(String(n.content ?? n.summary ?? ''));
+  const title = rawTitle || rawSummary.slice(0, 120) || 'Untitled';
+  return {
+    newsId: String(n.id ?? ''),
+    title,
+    summary: rawSummary,
+    publishedAt: n.release_time
+      ? new Date(Number(n.release_time)).toISOString()
+      : new Date().toISOString(),
+    source: n.nick_name ?? n.author ?? 'SoSoValue',
+    categories: [
+      ...(Array.isArray(n.tags) ? n.tags : []),
+      ...(Array.isArray(n.matched_currencies)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ? n.matched_currencies.map((c: any) => c.name)
+        : []),
+    ].filter(Boolean).slice(0, 3),
+    url: n.source_link ?? n.original_link ?? '#',
+  };
+}
+
 export async function getNewsList(category?: string, limit = 20) {
   try {
-    const params: Record<string, string> = { size: String(limit) };
+    const params: Record<string, string> = { page_size: String(limit) };
     if (category) params.category = category;
-    const res = await fetchSSV<{ data: NewsItem[] }>('/v1/news/list', params);
-    return live(res.data);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res = await fetchSSV<any>('/news', params);
+    // Response shape: { code, data: { page, page_size, total, list: [...] } }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const dataField = (res as any)?.data;
+    const raw: unknown[] = Array.isArray(dataField)
+      ? dataField
+      : Array.isArray(dataField?.list) ? dataField.list : [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return live(raw.map((n: any) => mapNewsItem(n)));
   } catch {
     return mock(MOCK_NEWS);
   }
@@ -86,8 +213,9 @@ export async function getNewsList(category?: string, limit = 20) {
 
 export async function getSSIList() {
   try {
-    const res = await fetchSSV<{ data: SSIItem[] }>('/v1/ssi/list');
-    return live(res.data);
+    const res = await fetchSSV<{ data: SSIItem[] } | SSIItem[]>('/indices');
+    const raw = Array.isArray(res) ? res : (res as { data: SSIItem[] }).data;
+    return live(raw);
   } catch {
     return mock(MOCK_SSI);
   }
@@ -95,8 +223,9 @@ export async function getSSIList() {
 
 export async function getBTCTreasuries() {
   try {
-    const res = await fetchSSV<{ data: TreasuryItem[] }>('/v1/btc-treasuries');
-    return live(res.data);
+    const res = await fetchSSV<{ data: TreasuryItem[] } | TreasuryItem[]>('/btc-treasuries');
+    const raw = Array.isArray(res) ? res : (res as { data: TreasuryItem[] }).data;
+    return live(raw);
   } catch {
     return mock([] as TreasuryItem[]);
   }
