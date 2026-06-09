@@ -158,12 +158,11 @@ export async function GET() {
   const indexes: LiveIndex[] = SEED_DEFINITIONS.map(def => {
     const constituents = def.constituents.map(c => {
       const live = liveMarket.find(m => m.symbol === c.symbol);
-      console.log(live,'live')
-      const launchPrice = LAUNCH_PRICES[c.symbol] ?? c.price;
+      const launchPrice = LAUNCH_PRICES[c.symbol] ?? 1;
       return {
         ...c,
-        price: live?.price ?? c.price,
-        change24h: live?.change24h ?? c.change24h,
+        price: live?.price ?? 0,
+        change24h: live?.change24h ?? 0,
         launchPrice,
         logoUrl: undefined,
       };

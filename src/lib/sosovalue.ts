@@ -104,13 +104,7 @@ export async function getMarketData() {
       .map(r => r.value)
       .filter(item => item.price > 0);
 
-    // Build a map of live prices; for tokens not returned by API, fall back to mock prices
-    const liveMap = new Map(liveItems.map(i => [i.symbol, i]));
-    const merged: MarketDataItem[] = MOCK_MARKET_DATA.map(m =>
-      liveMap.get(m.symbol) ?? m
-    );
-
-    return live(merged);
+    return live(liveItems);
   } catch (err) {
     console.error('[SoSoValue] getMarketData failed:', err instanceof Error ? err.message : err);
     return mock(MOCK_MARKET_DATA);
@@ -156,8 +150,7 @@ export async function getETFData() {
       };
     });
 
-    console.log(`[SoSoValue] getETFData: ${items.length} days (BTC + ETH)`);
-    return items.length > 0 ? live(items) : mock(MOCK_ETF_DATA);
+    return live(items);
   } catch (err) {
     console.error('[SoSoValue] getETFData failed:', err instanceof Error ? err.message : err);
     return mock(MOCK_ETF_DATA);
@@ -206,8 +199,9 @@ export async function getNewsList(category?: string, limit = 20) {
       : Array.isArray(dataField?.list) ? dataField.list : [];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return live(raw.map((n: any) => mapNewsItem(n)));
-  } catch {
-    return mock(MOCK_NEWS);
+  } catch (err) {
+    console.error('[SoSoValue] getNewsList failed:', err instanceof Error ? err.message : err);
+    return live([]);
   }
 }
 
