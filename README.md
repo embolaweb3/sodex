@@ -1,7 +1,5 @@
 # Prism — AI-Powered On-Chain Thematic Index Platform
 
-> **SoSoValue Buildathon 2026** · Wave 1 Submission
-
 ---
 
 ## The Problem
@@ -108,7 +106,7 @@ Prism generates an execution plan through the SoDEX orderbook — showing estima
 ## Live Demo
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/embolaweb3/prism
 cd prism
 npm install
 # Add your API keys to .env.local (app works with mock data without keys)
@@ -183,37 +181,7 @@ SODEX_API_KEY=          # Execution layer (testnet works without a key)
 
 ---
 
-## Wave 1 Deliverables
 
-- [x] Full working prototype — landing, builder, marketplace, detail, dashboard (5 pages)
-- [x] SoSoValue API integrated across 9 endpoints with graceful mock fallback
-- [x] Claude AI index construction — weighted basket, per-token rationale, risk warnings
-- [x] 90-day backtester vs BTC and ETH benchmarks with Sharpe ratio and max drawdown
-- [x] SoDEX execution preview — slippage estimation per token, EIP-712 order structure
-- [x] Three.js 3D animated scenes — particle field, wireframe polyhedra, glow rings per page
-- [x] Production build passing, Vercel-ready
-
----
-
-## Judging Criteria Alignment
-
-| Criteria | Weight | How Prism Addresses It |
-|---|---|---|
-| **User Value & Impact** | 30% | Democratizes institutional-grade index creation. Retail investors gain a tool that previously cost millions to build. Clear use case with three distinct user types (creators, followers, passive investors). |
-| **Functionality & Demo** | 25% | Complete, working flow: thesis input → AI construction → backtest → execution preview. All 9 routes functional with live data or seamless mock fallback. |
-| **Logic & Workflow** | 20% | Sophisticated index scoring: market cap weighting + ETF flow overlay + sector concentration caps + risk-adjusted limits. Not a simple wrapper — it is a real index methodology engine. |
-| **API Integration** | 15% | 9 SoSoValue endpoints deeply woven into the core product logic, not just displayed. SoDEX integrated from orderbook depth through EIP-712 order structure. |
-| **UX & Clarity** | 10% | Three.js 3D backgrounds unique to each page, Framer Motion page transitions, animated build steps, glass morphism design system. One of the most polished UX submissions. |
-
----
-
-## Team
-
-Solo build — embodying the SoSoValue Buildathon vision that a single person, armed with AI and the right infrastructure, can build what used to require an entire financial services team.
-
-Contact: *[Your email / Discord / Twitter]*
-
----
 
 ## Roadmap
 
