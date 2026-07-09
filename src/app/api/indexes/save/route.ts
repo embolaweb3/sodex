@@ -17,8 +17,6 @@ function computeMethodologyHash(index: CryptoIndex, riskLevel: string, factorVec
   const payload = JSON.stringify({
     thesis: index.thesis,
     riskLevel,
-    // Factor vector is now part of the hash — two indexes with same thesis but
-    // different factor emphasis produce different methodology fingerprints.
     factorVector: factorVector ?? null,
     constituents: index.constituents.map((c: IndexToken) => ({
       symbol: c.symbol,
@@ -88,7 +86,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       id: data.id,
       methodologyHash,
-      
       source: 'live' as const,
       savedAt: data.created_at as string,
     });

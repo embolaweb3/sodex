@@ -60,13 +60,13 @@ export default function LeaderboardPage() {
 
   function topByFactor(key: string, n = 3) {
     return symbols
-      .map(sym => ({ symbol: sym, score: (scores[sym] as Record<string, number>)[key] ?? 0, sector: scores[sym].sector }))
+      .map(sym => ({ symbol: sym, score: (scores[sym] as unknown as Record<string, number>)[key] ?? 0, sector: scores[sym].sector }))
       .sort((a, b) => b.score - a.score)
       .slice(0, n);
   }
 
   const compositeScores = symbols.map(sym => {
-    const s = scores[sym] as Record<string, number>;
+    const s = scores[sym] as unknown as Record<string, number>;
     const composite = FACTOR_META.reduce((sum, f) => sum + (consensus[f.key] ?? 0) * (s[f.key] ?? 0), 0);
     return { symbol: sym, composite: Math.round(composite * 10) / 10, sector: scores[sym].sector };
   }).sort((a, b) => b.composite - a.composite);

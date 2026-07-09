@@ -13,7 +13,7 @@ export const supabase = url && anonKey
   ? createClient(url, anonKey)
   : null;
 
-// Server-only client
+// Server-only client — authenticated writes (service role key, never sent to client)
 export function createServerClient() {
   if (!url || !serviceKey) return null;
   return createClient(url, serviceKey, {
