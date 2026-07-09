@@ -7,7 +7,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
 import { formatCurrency, formatPercent, getCategoryColor, cn } from '@/lib/utils';
-import type { BuildIndexResponse, ExecutionResult } from '@/types';
+import type { BuildIndexResponse, ExecutionResult, FactorVector, BrinsonAttribution } from '@/types';
 import { useAccount } from 'wagmi';
 
 const Scene = dynamic(() => import('@/components/three/Scene').then(m => ({ default: m.Scene })), { ssr: false });
@@ -36,6 +36,7 @@ export default function BuilderPage() {
   const [error, setError] = useState('');
   const [step, setStep] = useState<'input' | 'building' | 'result'>('input');
   const [buildingStep, setBuildingStep] = useState(0);
+  const [macroAlert, setMacroAlert] = useState<string | null>(null);
 
   // Pre-fill from fork query param
   useEffect(() => {
@@ -44,14 +45,35 @@ export default function BuilderPage() {
     if (forkedThesis) setThesis(decodeURIComponent(forkedThesis));
   }, []);
 
+  // Macro event detection — scan live news for high-impact events
+  useEffect(() => {
+    const MACRO_KEYWORDS = ['FOMC', 'Federal Reserve', 'rate decision', 'rate hike', 'rate cut', 'CPI', 'consumer price', 'NFP', 'non-farm payroll', 'jobs report', 'PCE', 'Fed minutes'];
+    fetch('/api/market-data')
+      .then(r => r.json())
+      .then((d: { news?: Array<{ title: string; summary: string }> }) => {
+        const news = d.news ?? [];
+        const hit = news.find(n =>
+          MACRO_KEYWORDS.some(kw =>
+            n.title.toLowerCase().includes(kw.toLowerCase()) ||
+            n.summary.toLowerCase().includes(kw.toLowerCase())
+          )
+        );
+        if (hit) {
+          setMacroAlert(`Macro event in live SoSoValue news: "${hit.title.slice(0, 90)}${hit.title.length > 90 ? '...' : ''}"`);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const BUILDING_STEPS = [
-    'Querying SoSoValue market data...',
-    'Fetching ETF flow indicators...',
-    'Analyzing sector performance...',
-    'Running AI index construction...',
-    'Calculating optimal weights...',
-    'Running 90-day backtest...',
-    'Generating execution preview...',
+    'Querying SoSoValue live market data...',
+    'Fetching 30-day ETF flow indicators...',
+    'Computing institutional flow factors...',
+    'Scoring tokens across 5 quantitative dimensions...',
+    'AI interpreting thesis into factor vector...',
+    'Constructing weights via softmax factor model...',
+    'Running Brinson attribution analysis...',
+    'Computing active return vs 60/40 benchmark...',
   ];
 
   async function handleBuild() {
@@ -187,6 +209,19 @@ export default function BuilderPage() {
                 </div>
               </div>
 
+              {/* Macro event warning */}
+              {macroAlert && (
+                <div className="mb-4 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-start gap-3">
+                  <span className="flex-shrink-0 mt-0.5">⚡</span>
+                  <div>
+                    <div className="text-xs font-bold text-amber-400 mb-1 uppercase tracking-wide">Macro Event Detected · SoSoValue Live News</div>
+                    <p className="text-xs text-amber-300/80 leading-relaxed">{macroAlert}</p>
+                    <p className="text-xs text-gray-500 mt-1">High-impact macro events can cause short-term factor score volatility. Consider weighting liquidity higher or reducing aggressive factor emphasis.</p>
+                  </div>
+                  <button onClick={() => setMacroAlert(null)} className="flex-shrink-0 text-gray-600 hover:text-gray-400 text-xs mt-0.5">✕</button>
+                </div>
+              )}
+
               {error && (
                 <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
                   {error}
@@ -262,6 +297,107 @@ export default function BuilderPage() {
   );
 }
 
+const FACTOR_META: { key: keyof FactorVector; label: string; desc: string; color: string }[] = [
+  { key: 'instFlow',  label: 'Institutional Flow',  desc: 'ETF net-flow momentum',      color: '#f59e0b' },
+  { key: 'momentum',  label: 'Momentum',             desc: 'Vs sector-peer returns',     color: '#6366f1' },
+  { key: 'liquidity', label: 'Liquidity',            desc: 'Volume / market cap ratio',  color: '#06b6d4' },
+  { key: 'sentiment', label: 'Sentiment',            desc: 'News attention density',     color: '#8b5cf6' },
+  { key: 'sizeRank',  label: 'Growth Potential',     desc: 'Within-sector size rank',    color: '#10b981' },
+];
+
+function FactorVectorPanel({ fv }: { fv: FactorVector }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="glass rounded-2xl p-6 border border-indigo-500/20"
+    >
+      <div className="flex items-center gap-2 mb-4">
+        <span className="text-base">⚖️</span>
+        <h3 className="font-bold text-white">Factor Emphasis</h3>
+        <span className="text-xs px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">AI Extracted</span>
+      </div>
+      <p className="text-xs text-gray-500 mb-4">How the thesis was translated into a quantitative factor vector. Weights drive token scoring — no LLM token selection.</p>
+      <div className="space-y-3">
+        {FACTOR_META.map(({ key, label, desc, color }) => {
+          const pct = Math.round(fv[key] * 100);
+          return (
+            <div key={key}>
+              <div className="flex items-center justify-between mb-1">
+                <div>
+                  <span className="text-sm font-semibold text-white">{label}</span>
+                  <span className="text-xs text-gray-600 ml-2">{desc}</span>
+                </div>
+                <span className="text-sm font-bold text-white">{pct}%</span>
+              </div>
+              <div className="h-1.5 w-full rounded-full bg-white/5">
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${pct}%` }}
+                  transition={{ delay: 0.1, duration: 0.6, ease: 'easeOut' }}
+                  className="h-full rounded-full"
+                  style={{ backgroundColor: color }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </motion.div>
+  );
+}
+
+function AttributionPanel({ attr }: { attr: BrinsonAttribution }) {
+  const activeColor = attr.totalActiveReturn >= 0 ? 'text-emerald-400' : 'text-red-400';
+  const rows = [
+    { label: 'Portfolio Return (7d)',   value: attr.portfolioReturn,    color: 'text-white' },
+    { label: 'Benchmark Return (7d)',   value: attr.benchmarkReturn,    color: 'text-gray-400', note: '60% BTC · 40% ETH' },
+    { label: 'Allocation Effect',       value: attr.allocationEffect,   color: attr.allocationEffect  >= 0 ? 'text-emerald-400' : 'text-red-400' },
+    { label: 'Selection Effect',        value: attr.selectionEffect,    color: attr.selectionEffect   >= 0 ? 'text-emerald-400' : 'text-red-400' },
+    { label: 'Interaction Effect',      value: attr.interactionEffect,  color: attr.interactionEffect >= 0 ? 'text-emerald-400' : 'text-red-400' },
+  ];
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.08 }}
+      className="glass rounded-2xl p-6 border border-cyan-500/20"
+    >
+      <div className="flex items-center gap-2 mb-4">
+        <span className="text-base">📐</span>
+        <h3 className="font-bold text-white">Brinson Attribution</h3>
+        <span className="text-xs px-2 py-0.5 rounded-md bg-cyan-500/20 text-cyan-400 border border-cyan-500/20">7d · Live Data</span>
+      </div>
+      <p className="text-xs text-gray-500 mb-4">Return decomposition against 60/40 BTC/ETH benchmark using real SoSoValue 7-day returns.</p>
+
+      <div className="space-y-2.5 mb-4">
+        {rows.map(row => (
+          <div key={row.label} className="flex items-center justify-between text-sm">
+            <div>
+              <span className="text-gray-400">{row.label}</span>
+              {row.note && <span className="text-xs text-gray-600 ml-1.5">{row.note}</span>}
+            </div>
+            <span className={cn('font-bold font-mono', row.color)}>
+              {row.value >= 0 ? '+' : ''}{row.value.toFixed(2)}%
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <div className="pt-3 border-t border-white/5 flex items-center justify-between">
+        <div>
+          <div className="text-xs text-gray-500 uppercase tracking-wider">Active Return</div>
+          <div className="text-xs text-gray-600 mt-0.5">Primary factor: {attr.topContributingFactor} ({attr.topContributingFactorPct}%)</div>
+        </div>
+        <div className={cn('text-2xl font-black font-mono', activeColor)}>
+          {attr.totalActiveReturn >= 0 ? '+' : ''}{attr.totalActiveReturn.toFixed(2)}%
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 function truncateTxHash(hash: string) {
   return `${hash.slice(0, 10)}...${hash.slice(-8)}`;
 }
@@ -302,7 +438,7 @@ function IndexResult({
       const res = await fetch('/api/indexes/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ index, reasoning, warnings, backtest, walletAddress: address, riskLevel }),
+        body: JSON.stringify({ index, reasoning, warnings, backtest, walletAddress: address, riskLevel, factorVector: result.factorVector }),
       });
       if (!res.ok) throw new Error((await res.json()).error || 'Publish failed');
       setPublishResult(await res.json());
@@ -509,12 +645,20 @@ function IndexResult({
         </div>
       </div>
 
-      {/* AI Reasoning */}
+      {/* Factor Model + Attribution — side by side */}
+      {(result.factorVector || result.attribution) && (
+        <div className="grid lg:grid-cols-2 gap-6">
+          {result.factorVector && <FactorVectorPanel fv={result.factorVector} />}
+          {result.attribution  && <AttributionPanel  attr={result.attribution} />}
+        </div>
+      )}
+
+      {/* AI Methodology */}
       <div className="glass rounded-2xl p-6 border border-violet-500/20">
         <div className="flex items-center gap-2 mb-3">
           <span className="text-lg">🧠</span>
-          <h3 className="font-bold text-white">AI Methodology</h3>
-          <span className="text-xs px-2 py-0.5 rounded-md bg-violet-500/20 text-violet-400 border border-violet-500/30">Claude Sonnet 4.6</span>
+          <h3 className="font-bold text-white">Factor Model Methodology</h3>
+          <span className="text-xs px-2 py-0.5 rounded-md bg-violet-500/20 text-violet-400 border border-violet-500/30">Quantitative · Claude Sonnet 4.6</span>
         </div>
         <p className="text-gray-400 text-sm leading-relaxed">{reasoning}</p>
 
