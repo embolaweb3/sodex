@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { keccak256, toBytes } from 'viem';
 import { createServerClient, hasSupabase } from '@/lib/supabase';
-import type { CryptoIndex, BacktestDataPoint, IndexToken } from '@/types';
+import type { CryptoIndex, BacktestDataPoint, IndexToken, FactorVector } from '@/types';
 
 interface SaveRequest {
   index: CryptoIndex;
@@ -10,12 +10,16 @@ interface SaveRequest {
   backtest: BacktestDataPoint[];
   walletAddress: string;
   riskLevel: string;
+  factorVector?: FactorVector;
 }
 
-function computeMethodologyHash(index: CryptoIndex, riskLevel: string): string {
+function computeMethodologyHash(index: CryptoIndex, riskLevel: string, factorVector?: FactorVector): string {
   const payload = JSON.stringify({
     thesis: index.thesis,
     riskLevel,
+    // Factor vector is now part of the hash — two indexes with same thesis but
+    // different factor emphasis produce different methodology fingerprints.
+    factorVector: factorVector ?? null,
     constituents: index.constituents.map((c: IndexToken) => ({
       symbol: c.symbol,
       weight: c.weight,
@@ -29,13 +33,13 @@ function computeMethodologyHash(index: CryptoIndex, riskLevel: string): string {
 export async function POST(req: NextRequest) {
   try {
     const body: SaveRequest = await req.json();
-    const { index, reasoning, warnings, backtest, walletAddress, riskLevel } = body;
+    const { index, reasoning, warnings, backtest, walletAddress, riskLevel, factorVector } = body;
 
     if (!walletAddress || !/^0x[0-9a-fA-F]{40}$/.test(walletAddress)) {
       return NextResponse.json({ error: 'Valid wallet address required' }, { status: 400 });
     }
 
-    const methodologyHash = computeMethodologyHash(index, riskLevel);
+    const methodologyHash = computeMethodologyHash(index, riskLevel, factorVector);
 
     if (!hasSupabase()) {
       // Demo mode — return hash without persisting
@@ -69,6 +73,7 @@ export async function POST(req: NextRequest) {
         reasoning,
         warnings,
         backtest,
+        factor_vector: factorVector ?? null,
         is_public: true,
         methodology_hash: methodologyHash,
         updated_at: new Date().toISOString(),
@@ -83,6 +88,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       id: data.id,
       methodologyHash,
+      
       source: 'live' as const,
       savedAt: data.created_at as string,
     });
