@@ -1,3 +1,30 @@
+export interface FactorScores {
+  instFlow: number;   // 0-100: institutional ETF flow signal
+  momentum: number;  // 0-100: price momentum vs sector peers
+  liquidity: number; // 0-100: volume/marketcap quality
+  sentiment: number; // 0-100: news attention density
+  sizeRank: number;  // 0-100: growth potential within sector
+}
+
+export interface FactorVector {
+  instFlow: number;   // sums to 1.0
+  momentum: number;
+  liquidity: number;
+  sentiment: number;
+  sizeRank: number;
+}
+
+export interface BrinsonAttribution {
+  allocationEffect: number;
+  selectionEffect: number;
+  interactionEffect: number;
+  totalActiveReturn: number;
+  portfolioReturn: number;
+  benchmarkReturn: number;
+  topContributingFactor: string;
+  topContributingFactorPct: number;
+}
+
 export interface IndexToken {
   symbol: string;
   name: string;
@@ -9,6 +36,7 @@ export interface IndexToken {
   rationale: string;
   category: string;
   logoUrl?: string;
+  factorScore?: number;
 }
 
 export interface CryptoIndex {
@@ -93,6 +121,8 @@ export interface BuildIndexResponse {
   reasoning: string;
   warnings: string[];
   backtest: BacktestDataPoint[];
+  factorVector?: FactorVector;
+  attribution?: BrinsonAttribution;
 }
 
 export interface SoDEXMarket {
