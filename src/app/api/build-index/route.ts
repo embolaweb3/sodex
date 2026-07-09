@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { getMarketData } from '@/lib/sosovalue';
-import type { BuildIndexRequest, CryptoIndex, IndexToken, BacktestDataPoint } from '@/types';
+import { getMarketData, getETFData, getNewsList } from '@/lib/sosovalue';
+import { computeFactorScores, constructFromFactors } from '@/lib/factor-engine';
+import { brinsonAttribution, factorCorrelatedBacktest, calculatePerformance, generateAttributionNarration } from '@/lib/attribution';
+import type { BuildIndexRequest, CryptoIndex, IndexToken, FactorVector } from '@/types';
 import { generateId } from '@/lib/utils';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -15,189 +17,172 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Thesis must be at least 10 characters' }, { status: 400 });
     }
 
-    const { data: marketData } = await getMarketData();
+    // Step 1: fetch all SoSoValue data in parallel
+    const [marketRes, etfRes, newsRes] = await Promise.allSettled([
+      getMarketData(),
+      getETFData(),
+      getNewsList(undefined, 20),
+    ]);
 
-    const systemPrompt = `You are Prism's AI index construction engine. You analyze investment theses and construct weighted cryptocurrency indexes using institutional-grade market data from SoSoValue.
+    const marketData = marketRes.status === 'fulfilled' ? marketRes.value.data : [];
+    const etfData    = etfRes.status    === 'fulfilled' ? etfRes.value.data    : [];
+    const newsData   = newsRes.status   === 'fulfilled' ? newsRes.value.data   : [];
 
-Your output must be valid JSON matching this exact structure:
-{
-  "name": "string (3-5 word descriptive index name)",
-  "ticker": "string (4-6 char uppercase ticker like AIMDX)",
-  "description": "string (2-3 sentence description)",
-  "constituents": [
-    {
-      "symbol": "string (from available tokens)",
-      "weight": number (percentage, all must sum to 100),
-      "rationale": "string (1-2 sentence per token rationale citing data)",
-      "score": number (0-100 conviction score)
+    if (marketData.length === 0) {
+      return NextResponse.json({ error: 'Market data unavailable' }, { status: 503 });
     }
-  ],
-  "rebalanceFrequency": "monthly",
-  "reasoning": "string (3-4 sentence overall methodology explanation)",
-  "warnings": ["string array of risk warnings"],
-  "tags": ["string array of 3-5 relevant tags"]
+
+    // Step 2: compute factor scores (pure math, no LLM)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const factorScores = computeFactorScores(marketData as any, etfData as any, newsData as any);
+
+    // Step 3: AI interprets thesis → factor emphasis vector + metadata only
+    // The LLM never touches token weights — it only translates the thesis intent into a numeric vector
+    const systemPrompt = `You are Prism's thesis interpreter. Extract the quantitative factor emphasis from an investment thesis.
+
+Return ONLY valid JSON matching this exact structure — no markdown, no explanation:
+{
+  "factorVector": {
+    "instFlow": 0.0,
+    "momentum": 0.0,
+    "liquidity": 0.0,
+    "sentiment": 0.0,
+    "sizeRank": 0.0
+  },
+  "name": "3-5 word descriptive index name",
+  "ticker": "4-6 char uppercase ticker like AIMDX",
+  "description": "2-3 sentence description of this index strategy",
+  "sectorFilter": null,
+  "tags": ["tag1", "tag2", "tag3"],
+  "warnings": ["risk warning 1", "risk warning 2"]
 }
 
-Risk level adjustments:
-- conservative: max 5 tokens, favor large caps (BTC, ETH, top DeFi), max 30% per token
-- balanced: 5-8 tokens, mix of large and mid caps, max 35% per token
-- aggressive: up to 10 tokens, can include small caps, max 40% per token
+factorVector values must sum to exactly 1.0.
+sectorFilter: set to one of "L1","L2","DeFi","AI","RWA","Gaming","Infrastructure" only when the thesis is unambiguously single-sector. Otherwise null.
 
-Always ensure weights sum exactly to 100. Select only from the provided token list.`;
+Factor inference:
+- "institutional", "ETF flows", "smart money", "fund flows" → high instFlow (0.35–0.50)
+- "momentum", "trending", "breakout", "performance" → high momentum (0.35–0.50)
+- "liquid", "blue chip", "high volume", "established" → high liquidity (0.30–0.45)
+- "narrative", "hype", "attention", "media coverage" → high sentiment (0.25–0.40)
+- "emerging", "small cap", "growth", "early stage" → high sizeRank (0.30–0.45)
+- "stable", "proven", "large cap" → low sizeRank (0.05–0.15)
+- Generic/balanced thesis → distribute roughly equally`;
 
-    const userPrompt = `Investment thesis: "${thesis}"
-
+    const userPrompt = `Thesis: "${thesis}"
 Risk level: ${riskLevel}
 Max constituents: ${maxConstituents}
-
-Available tokens with live SoSoValue data:
-${marketData.map(t => `${t.symbol} (${t.name}): $${t.price} | 24h: ${t.change24h > 0 ? '+' : ''}${t.change24h}% | 7d: ${t.change7d > 0 ? '+' : ''}${t.change7d}% | MCap: $${(t.marketCap / 1e9).toFixed(1)}B | Vol: $${(t.volume24h / 1e6).toFixed(0)}M | Sector: ${t.category}`).join('\n')}
-
-Construct the optimal index. Return ONLY valid JSON, no markdown.`;
+Available sectors: L1, L2, DeFi, AI, RWA, Gaming, Infrastructure`;
 
     const message = await client.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 2000,
+      max_tokens: 500,
       system: systemPrompt,
       messages: [{ role: 'user', content: userPrompt }],
     });
 
     const content = message.content[0];
-    if (content.type !== 'text') throw new Error('Unexpected response type');
+    if (content.type !== 'text') throw new Error('Unexpected response type from AI');
 
     let parsed: {
+      factorVector: FactorVector;
       name: string;
       ticker: string;
       description: string;
-      constituents: Array<{ symbol: string; weight: number; rationale: string; score?: number }>;
-      rebalanceFrequency: 'weekly' | 'monthly' | 'quarterly';
-      reasoning: string;
-      warnings: string[];
+      sectorFilter: string | null;
       tags: string[];
+      warnings: string[];
     };
 
     try {
-      // Strip any markdown code fences if present
       const cleaned = content.text.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
       parsed = JSON.parse(cleaned);
     } catch {
       throw new Error('AI returned invalid JSON');
     }
 
-    // Map constituents to full token data
-    const indexTokens: IndexToken[] = parsed.constituents.map(c => {
-      const tokenData = marketData.find(t => t.symbol === c.symbol);
-      return {
-        symbol: c.symbol,
-        name: tokenData?.name || c.symbol,
-        weight: c.weight,
-        price: tokenData?.price || 0,
-        change24h: tokenData?.change24h || 0,
-        marketCap: tokenData?.marketCap || 0,
-        volume24h: tokenData?.volume24h || 0,
-        rationale: c.rationale,
-        category: tokenData?.category || 'Other',
-      };
-    });
+    // Normalize factor vector to sum exactly to 1.0
+    const fvRaw = parsed.factorVector;
+    const fvSum = Object.values(fvRaw).reduce((a, b) => a + b, 0);
+    const factorVector: FactorVector = fvSum > 0.01 ? {
+      instFlow:  fvRaw.instFlow  / fvSum,
+      momentum:  fvRaw.momentum  / fvSum,
+      liquidity: fvRaw.liquidity / fvSum,
+      sentiment: fvRaw.sentiment / fvSum,
+      sizeRank:  fvRaw.sizeRank  / fvSum,
+    } : { instFlow: 0.2, momentum: 0.2, liquidity: 0.2, sentiment: 0.2, sizeRank: 0.2 };
 
-    // Generate backtest data
-    const backtest = generateBacktest(indexTokens, 90);
+    // Step 4: factor engine constructs weights (pure math — LLM is done)
+    const maxN = riskLevel === 'conservative' ? 5
+      : riskLevel === 'balanced' ? Math.min(maxConstituents, 7)
+      : Math.min(maxConstituents, 10);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const scoredTokens = constructFromFactors(factorVector, factorScores, marketData as any, riskLevel, maxN, parsed.sectorFilter);
+
+    if (scoredTokens.length === 0) {
+      throw new Error('Factor model could not select tokens — insufficient market data');
+    }
+
+    // Step 5: Brinson attribution using real 7-day returns from SoSoValue
+    const btcChange7d = marketData.find(t => t.symbol === 'BTC')?.change7d ?? 0;
+    const ethChange7d = marketData.find(t => t.symbol === 'ETH')?.change7d ?? 0;
+
+    const attribution = brinsonAttribution(
+      scoredTokens.map(t => ({
+        symbol: t.symbol, weight: t.weight, change7d: t.change7d, category: t.category,
+      })),
+      btcChange7d,
+      ethChange7d,
+      factorVector,
+    );
+
+    // Step 6: factor-correlated backtest + performance metrics
+    const backtest = factorCorrelatedBacktest(
+      scoredTokens.map(t => ({ symbol: t.symbol, weight: t.weight, factorScore: t.factorScore })),
+      90,
+    );
+    const performance = calculatePerformance(backtest);
+
+    // Step 7: programmatic narration — grounded in the attribution numbers, no hallucination
+    const reasoning = generateAttributionNarration(factorVector, attribution, scoredTokens.map(t => t.symbol));
+
+    const indexTokens: IndexToken[] = scoredTokens.map(t => ({
+      symbol:     t.symbol,
+      name:       t.name,
+      weight:     t.weight,
+      price:      t.price,
+      change24h:  t.change24h,
+      marketCap:  t.marketCap,
+      volume24h:  t.volume24h,
+      rationale:  t.rationale,
+      category:   t.category,
+      factorScore: t.factorScore,
+    }));
 
     const index: CryptoIndex = {
-      id: generateId(),
-      name: parsed.name,
-      ticker: parsed.ticker,
+      id:                 generateId(),
+      name:               parsed.name,
+      ticker:             parsed.ticker,
       thesis,
-      description: parsed.description,
-      constituents: indexTokens,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      performance: calculatePerformance(backtest),
-      category: indexTokens[0]?.category || 'Other',
-      tags: parsed.tags || [],
-      followers: 0,
-      isPublic: false,
-      rebalanceFrequency: parsed.rebalanceFrequency || 'monthly',
+      description:        parsed.description,
+      constituents:       indexTokens,
+      createdAt:          new Date().toISOString(),
+      updatedAt:          new Date().toISOString(),
+      performance,
+      category:           scoredTokens[0]?.category || 'Other',
+      tags:               parsed.tags || [],
+      followers:          0,
+      isPublic:           false,
+      rebalanceFrequency: 'monthly',
     };
 
-    return NextResponse.json({
-      index,
-      reasoning: parsed.reasoning,
-      warnings: parsed.warnings || [],
-      backtest,
-    });
+    return NextResponse.json({ index, reasoning, warnings: parsed.warnings || [], backtest, factorVector, attribution });
   } catch (error) {
     console.error('Build index error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to build index';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Failed to build index' },
+      { status: 500 },
+    );
   }
-}
-
-function generateBacktest(tokens: IndexToken[], days: number): BacktestDataPoint[] {
-  const points: BacktestDataPoint[] = [];
-  let indexValue = 1000;
-  let btcValue = 1000;
-  let ethValue = 1000;
-
-  // Seed with slight alpha based on category
-  const hasAI = tokens.some(t => t.category === 'AI');
-  const hasDeFi = tokens.some(t => t.category === 'DeFi');
-  const alphaBias = hasAI ? 0.003 : hasDeFi ? 0.002 : 0.001;
-
-  for (let i = days; i >= 0; i--) {
-    const date = new Date();
-    date.setDate(date.getDate() - i);
-
-    const indexChange = (Math.random() - 0.47 + alphaBias) * 0.04;
-    const btcChange = (Math.random() - 0.48) * 0.035;
-    const ethChange = (Math.random() - 0.47) * 0.038;
-
-    indexValue *= (1 + indexChange);
-    btcValue *= (1 + btcChange);
-    ethValue *= (1 + ethChange);
-
-    points.push({
-      date: date.toISOString().split('T')[0],
-      indexValue: Math.max(indexValue, 100),
-      btcValue: Math.max(btcValue, 100),
-      ethValue: Math.max(ethValue, 100),
-    });
-  }
-
-  return points;
-}
-
-function calculatePerformance(backtest: BacktestDataPoint[]) {
-  const last = backtest[backtest.length - 1];
-  const first = backtest[0];
-  const day1 = backtest[backtest.length - 2];
-  const day7 = backtest[Math.max(0, backtest.length - 8)];
-  const day30 = backtest[Math.max(0, backtest.length - 31)];
-  const day90 = backtest[0];
-
-  const pct = (a: number, b: number) => ((b - a) / a) * 100;
-
-  // Sharpe approximation
-  const returns = backtest.slice(1).map((p, i) => (p.indexValue - backtest[i].indexValue) / backtest[i].indexValue);
-  const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
-  const std = Math.sqrt(returns.map(r => (r - mean) ** 2).reduce((a, b) => a + b, 0) / returns.length);
-  const sharpe = std > 0 ? (mean / std) * Math.sqrt(365) : 0;
-
-  const maxDrawdown = Math.min(...returns.reduce((acc: number[], r, i) => {
-    const peak = Math.max(...backtest.slice(0, i + 1).map(p => p.indexValue));
-    acc.push(((backtest[i].indexValue - peak) / peak) * 100);
-    return acc;
-  }, []));
-
-  return {
-    day1: pct(day1?.indexValue || first.indexValue, last.indexValue),
-    day7: pct(day7?.indexValue || first.indexValue, last.indexValue),
-    day30: pct(day30?.indexValue || first.indexValue, last.indexValue),
-    day90: pct(first.indexValue, last.indexValue),
-    day180: pct(first.indexValue, last.indexValue) * 1.8,
-    allTime: pct(first.indexValue, last.indexValue),
-    sharpeRatio: parseFloat(sharpe.toFixed(2)),
-    maxDrawdown: parseFloat(maxDrawdown.toFixed(2)),
-    volatility: parseFloat((std * Math.sqrt(365) * 100).toFixed(2)),
-  };
 }
