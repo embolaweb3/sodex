@@ -11,6 +11,7 @@ const navLinks = [
   { href: '/app', label: 'Dashboard' },
   { href: '/builder', label: 'Build Index' },
   { href: '/indexes', label: 'Marketplace' },
+  { href: '/leaderboard', label: 'Leaderboard' },
 ];
 
 export function Nav() {
