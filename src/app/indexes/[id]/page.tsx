@@ -12,6 +12,153 @@ import { formatCurrency, formatPercent, getCategoryColor, cn } from '@/lib/utils
 import type { LiveIndex, IndexesApiResponse } from '@/types';
 import { useAccount } from 'wagmi';
 
+// --- Factor Health types ---
+interface FactorHealth {
+  key: string;
+  name: string;
+  thesisWeight: number;
+  currentScore: number;
+  level: 'strong' | 'moderate' | 'weak';
+}
+
+interface HealthData {
+  status: 'healthy' | 'warning' | 'degraded';
+  factors: FactorHealth[];
+  alerts: string[];
+  doctorNote: string | null;
+  constituents: string[];
+  generatedAt: string;
+}
+
+const FACTOR_COLORS: Record<string, string> = {
+  instFlow:  '#f59e0b',
+  momentum:  '#6366f1',
+  liquidity: '#06b6d4',
+  sentiment: '#8b5cf6',
+  sizeRank:  '#10b981',
+};
+
+const STATUS_STYLES = {
+  healthy:  { label: '✓ Thesis Healthy',   cls: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' },
+  warning:  { label: '⚠ Factor Warning',    cls: 'bg-amber-500/10 text-amber-400 border-amber-500/20' },
+  degraded: { label: '✗ Thesis Degraded',  cls: 'bg-red-500/10 text-red-400 border-red-500/20' },
+};
+
+function FactorHealthPanel({ health, loading }: { health: HealthData | null; loading: boolean }) {
+  if (loading) {
+    return (
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
+        className="glass rounded-2xl p-6 border border-white/10 mt-6">
+        <div className="flex items-center gap-2 mb-4">
+          <span>🩺</span>
+          <h3 className="font-bold text-white">Index Doctor</h3>
+          <span className="text-xs px-2 py-0.5 rounded-md bg-white/5 text-gray-500 border border-white/5 animate-pulse">Analysing...</span>
+        </div>
+        <div className="space-y-3">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="h-6 bg-white/5 rounded animate-pulse" />
+          ))}
+        </div>
+      </motion.div>
+    );
+  }
+
+  if (!health) return null;
+
+  const ss = STATUS_STYLES[health.status];
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
+      className="glass rounded-2xl p-6 border border-white/10 mt-6">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <span>🩺</span>
+          <h3 className="font-bold text-white">Index Doctor</h3>
+          <span className="text-xs px-2 py-0.5 rounded-md bg-white/5 text-gray-500 border border-white/5">Live Factor Health</span>
+        </div>
+        <span className={cn('text-xs px-2.5 py-1 rounded-lg border font-semibold', ss.cls)}>
+          {ss.label}
+        </span>
+      </div>
+
+      {/* Per-factor bars */}
+      <div className="space-y-3 mb-5">
+        {health.factors.map(f => {
+          const color = FACTOR_COLORS[f.key] ?? '#6b7280';
+          const scoreColor = f.currentScore >= 60 ? '#10b981' : f.currentScore >= 40 ? '#d97706' : '#ef4444';
+          const isHighEmphasis = f.thesisWeight >= 0.20;
+          return (
+            <div key={f.key}>
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold text-white">{f.name}</span>
+                  {isHighEmphasis && (
+                    <span className="text-xs px-1 py-0.5 rounded bg-white/5 text-gray-500 border border-white/5">
+                      {Math.round(f.thesisWeight * 100)}% thesis wt
+                    </span>
+                  )}
+                </div>
+                <span className="text-sm font-bold tabular-nums" style={{ color: scoreColor }}>
+                  {f.currentScore}/100
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                {/* Thesis weight indicator */}
+                <div className="w-1 rounded-full" style={{ height: 6, backgroundColor: color, opacity: 0.4 + f.thesisWeight * 1.2 }} />
+                {/* Current score bar */}
+                <div className="flex-1 h-1.5 rounded-full bg-white/5 overflow-hidden">
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${f.currentScore}%` }}
+                    transition={{ delay: 0.1, duration: 0.5, ease: 'easeOut' }}
+                    className="h-full rounded-full"
+                    style={{ backgroundColor: scoreColor }}
+                  />
+                </div>
+                <span className="text-xs capitalize" style={{ color: scoreColor }}>{f.level}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Doctor note */}
+      {health.doctorNote && (
+        <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/15 mb-4">
+          <div className="flex items-start gap-2">
+            <span className="flex-shrink-0 mt-0.5">🩺</span>
+            <div>
+              <div className="text-xs font-semibold text-amber-400 mb-1.5">Index Doctor Diagnosis</div>
+              <p className="text-sm text-gray-300 leading-relaxed">{health.doctorNote}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {health.alerts.length > 0 && !health.doctorNote && (
+        <div className="space-y-2 mb-4">
+          {health.alerts.map((a, i) => (
+            <div key={i} className="flex items-start gap-2 text-xs text-amber-400">
+              <span className="flex-shrink-0">⚠</span>
+              <span>{a}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {health.alerts.length === 0 && (
+        <p className="text-xs text-emerald-400">
+          All emphasized factors are performing within healthy ranges. Thesis premises remain intact.
+        </p>
+      )}
+
+      <p className="text-xs text-gray-600 mt-3">
+        Checked {health.constituents.join(', ')} · {new Date(health.generatedAt).toLocaleTimeString()}
+      </p>
+    </motion.div>
+  );
+}
+
 const ETF_SIGNAL_STYLES = {
   bullish: { label: '↑ ETF Inflows', cls: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' },
   bearish: { label: '↓ ETF Outflows', cls: 'bg-red-500/10 text-red-400 border-red-500/20' },
@@ -49,6 +196,8 @@ export default function IndexDetailPage() {
   const [idx, setIdx] = useState<LiveIndex | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [health, setHealth] = useState<HealthData | null>(null);
+  const [healthLoading, setHealthLoading] = useState(false);
   const { address } = useAccount();
   const { following, toggle: toggleFollow } = useFollow(id, address);
 
@@ -60,6 +209,12 @@ export default function IndexDetailPage() {
         if (found) setIdx(found);
         else setNotFound(true);
         setLoading(false);
+        // Kick off health check in parallel
+        setHealthLoading(true);
+        fetch(`/api/health/${id}`)
+          .then(r => r.ok ? r.json() : null)
+          .then((h: HealthData | null) => { if (h && h.status) setHealth(h); setHealthLoading(false); })
+          .catch(() => setHealthLoading(false));
       })
       .catch(() => { setNotFound(true); setLoading(false); });
   }, [id]);
@@ -291,6 +446,11 @@ export default function IndexDetailPage() {
             })}
           </div>
         </motion.div>
+
+        {/* Factor Health — only show once main index data is loaded */}
+        {(health || healthLoading) && (
+          <FactorHealthPanel health={health} loading={healthLoading} />
+        )}
 
         {/* Drift Breakdown */}
         {idx.driftData && idx.driftData.length > 0 && (
